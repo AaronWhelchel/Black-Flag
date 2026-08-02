@@ -39,7 +39,10 @@ jobs:
         run: |
           mkdir -p build
           curl -fsSL -o build/ENCProdCat.xml "https://charts.noaa.gov/ENCs/ENCProdCat_19115.xml"
-          node tools/packs/catalog.mjs build/ENCProdCat.xml "${{ matrix.region }}" | tee build/cells.txt
+          ls -la build/ENCProdCat.xml
+          # no pipe: catalog.mjs exit codes (incl. exit 3 = no cells) must fail this step
+          node tools/packs/catalog.mjs build/ENCProdCat.xml "${{ matrix.region }}" > build/cells.txt
+          echo "discovered $(wc -l < build/cells.txt) cells:"; cat build/cells.txt
       - name: Download discovered cells (NOAA, public domain)
         run: |
           mkdir -p build/cells

@@ -1,8 +1,15 @@
 /**
  * ENC cell discovery — resolves a region's bounding box to actual NOAA cell
- * IDs using the official ENC product catalog (downloaded in CI). This replaces
- * hardcoded cell lists, which rot as NOAA reschemes cells (Register R6: every
- * source has an exit; a guessed cell name is not a source).
+ * IDs using the official ENC product catalog (ENCProdCat_19115.xml, curl'd in
+ * CI). Replaces hardcoded cell lists, which rot as NOAA reschemes cells.
+ *
+ * Schema reality (verified against charts.noaa.gov/ENCs/US1EEZ1M_19115.xml,
+ * 2026-08): records are <MD_Metadata> in a DEFAULT namespace (no gmd: prefix),
+ * identifiers appear as <fileIdentifier>…USxYYnnM_19115.xml…, and extents are
+ * usually EX_BoundingPolygon with <gml:pos>lat lon</gml:pos> pairs — with
+ * longitudes sometimes continued past ±180 across the antimeridian. Some
+ * records may instead carry classic west/east/south/north Decimal bounds.
+ * This parser accepts both.
  *
  * Usage: node tools/packs/catalog.mjs <catalog.xml> <region-key> [maxCells]
  * Prints matching cell IDs, one per line. Exits 3 if none found (R4: an empty
@@ -26,45 +33,72 @@ const bands = new Set((region.bands ?? [4, 5]).map(String));
 const maxCells = Number(maxCellsArg ?? region.max_cells ?? 8);
 
 const xml = readFileSync(catalogPath, 'utf8');
+console.error(`catalog: ${(xml.length / 1048576).toFixed(1)} MB`);
 
-// Split the catalog into per-cell chunks keyed by cell ID. Modern and legacy
-// IDs both match: US + band digit + 2 letters + 2–4 alphanumerics.
-const idRe = /\bUS[1-6][A-Z]{2}[A-Z0-9]{2,4}\b/g;
-const hits = [];
+const wrapLon = (lon) => {
+  let l = lon;
+  while (l < -180) l += 360;
+  while (l > 180) l -= 360;
+  return l;
+};
+
+// Chunk per metadata record; tolerate any (or no) namespace prefix.
+const recRe = /<(?:\w+:)?MD_Metadata[\s>]/g;
+const starts = [];
 let m;
-const seenAt = new Map();
-while ((m = idRe.exec(xml)) !== null) {
-  if (!seenAt.has(m[0])) seenAt.set(m[0], m.index);
-}
-const entries = [...seenAt.entries()].sort((a, b) => a[1] - b[1]);
+while ((m = recRe.exec(xml)) !== null) starts.push(m.index);
+if (starts.length === 0) starts.push(0);   // single-record or unexpected shape: scan whole file
+console.error(`records: ${starts.length}`);
 
-const num = (chunk, tag) => {
-  const r = new RegExp(`${tag}[^>]*>\\s*<gco:Decimal>(-?\\d+(?:\\.\\d+)?)</gco:Decimal>`);
+const idRe = /\bUS[1-6][A-Z]{2}[A-Z0-9]{2,5}(?=_19115|\.000|\.zip|\b)/;
+const posRe = /<gml:pos>\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*<\/gml:pos>/g;
+const bound = (chunk, tag) => {
+  const r = new RegExp(`(?:\\w+:)?${tag}[^>]*>\\s*<(?:\\w+:)?Decimal>(-?\\d+(?:\\.\\d+)?)`);
   const mm = chunk.match(r);
   return mm ? Number(mm[1]) : null;
 };
 
-for (let i = 0; i < entries.length; i++) {
-  const [id, start] = entries[i];
-  const end = i + 1 < entries.length ? entries[i + 1][1] : Math.min(xml.length, start + 20000);
-  const chunk = xml.slice(start, end);
-  const w = num(chunk, 'westBoundLongitude'), e = num(chunk, 'eastBoundLongitude');
-  const s = num(chunk, 'southBoundLatitude'), n = num(chunk, 'northBoundLatitude');
-  if (w === null || e === null || s === null || n === null) continue;
+const hits = new Map();
+for (let i = 0; i < starts.length; i++) {
+  const chunk = xml.slice(starts[i], i + 1 < starts.length ? starts[i + 1] : Math.min(xml.length, starts[i] + 200000));
+  const idm = chunk.match(idRe);
+  if (!idm) continue;
+  const id = idm[0];
+  if (hits.has(id)) continue;
   if (!bands.has(id[2])) continue;
+
+  let w = null, e = null, s = null, n = null;
+
+  // Preferred: bounding polygon positions ("lat lon" per verified sample)
+  let pm; posRe.lastIndex = 0;
+  while ((pm = posRe.exec(chunk)) !== null) {
+    const lat = Number(pm[1]);
+    const lon = wrapLon(Number(pm[2]));
+    if (Math.abs(lat) > 90) continue;
+    w = w === null ? lon : Math.min(w, lon);
+    e = e === null ? lon : Math.max(e, lon);
+    s = s === null ? lat : Math.min(s, lat);
+    n = n === null ? lat : Math.max(n, lat);
+  }
+  // Fallback: classic directional bounds
+  if (w === null) {
+    w = bound(chunk, 'westBoundLongitude'); e = bound(chunk, 'eastBoundLongitude');
+    s = bound(chunk, 'southBoundLatitude'); n = bound(chunk, 'northBoundLatitude');
+  }
+  if (w === null || e === null || s === null || n === null) continue;
+
   const intersects = !(e < minLon || w > maxLon || n < minLat || s > maxLat);
-  if (intersects) hits.push({ id, area: (e - w) * (n - s) });
+  if (intersects) hits.set(id, { id, area: (e - w) * (n - s) });
 }
 
-// Prefer harbor-scale (higher band digit), then smaller cells first.
-hits.sort((a, b) => (b.id[2].localeCompare(a.id[2])) || (a.area - b.area));
-const chosen = [...new Map(hits.map(h => [h.id, h])).values()].slice(0, maxCells);
+const list = [...hits.values()].sort((a, b) => (b.id[2].localeCompare(a.id[2])) || (a.area - b.area));
+const chosen = list.slice(0, maxCells);
 
 if (chosen.length === 0) {
-  console.error(`no ENC cells intersect ${regionKey} ${JSON.stringify(region.bbox)} in bands [${[...bands]}] — check the catalog or region bbox`);
+  console.error(`no ENC cells intersect ${regionKey} ${JSON.stringify(region.bbox)} in bands [${[...bands]}] — check the catalog structure or region bbox`);
   process.exit(3);
 }
-if (hits.length > chosen.length) {
-  console.error(`note: ${hits.length} cells matched, capped to ${chosen.length} (max_cells) — dropped: ${hits.slice(chosen.length).map(h => h.id).join(', ')}`);
+if (list.length > chosen.length) {
+  console.error(`note: ${list.length} cells matched, capped to ${chosen.length} — dropped: ${list.slice(chosen.length).map(h => h.id).join(', ')}`);
 }
 for (const c of chosen) console.log(c.id);
