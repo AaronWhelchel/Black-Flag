@@ -16,6 +16,7 @@ import { routeConflicts, suggestDetour, HAZARD_CLEARANCE_NM, extraDistanceNm } f
 import type { HazardMark } from '../packages/core/src/route.js';
 import { SyncEngine } from '../packages/sync/src/index.js';
 import { makeStore, DeviceStore } from './store.js';
+import { fetchTripWx, fetchTripTides, TripWx, TripTides } from './tripdata.js';
 // @ts-ignore — JSON bundled by esbuild
 import hydroPack from './packs/hydro-east-na.json';
 // @ts-ignore — JSON bundled by esbuild
@@ -373,6 +374,62 @@ for (const id of ['in-crew', 'in-fuel', 'in-food', 'in-fish']) $(id).addEventLis
   $('risk-off-note').style.display = on ? 'none' : 'block';
 });
 
+// ---- Trip data auto-fetch: plan a trip, get its NOAA data ----
+let tripWx: TripWx | null = null;
+let tripTides: TripTides | null = null;
+let wxTimer: any = null;
+let wxSeq = 0;
+
+function renderTripWxCard(status?: string) {
+  const el = $('trip-wx-body');
+  if (status) { el.innerHTML = `<span class="sub">${esc(status)}</span>`; return; }
+  if (!tripWx) return;
+  const gust = tripWx.gust_kn ? ` (gusts ${tripWx.gust_kn} kt)` : '';
+  const seas = tripWx.seas_ft !== null ? `${tripWx.seas_ft} ft seas (NWS marine grid)` : 'no marine wave grid here — seas not forecast (inland water)';
+  el.innerHTML = `
+    <div style="font-size:14px;color:var(--ink)"><b>${cardinal(tripWx.wind_from_deg)} ${tripWx.wind_kn} kt${gust}</b> · ${seas}</div>
+    <div style="margin-top:4px;color:var(--ink)">${esc(tripWx.summary)}</div>
+    <div class="sub" style="margin-top:6px">${esc(tripWx.detailed).slice(0, 220)}</div>
+    ${tripTides ? `<div style="margin-top:8px;font-size:13px;color:var(--ink)">Tides — ${esc(tripTides.name)}: ${tripTides.events.map(e => `${e.type} ${e.t}`).join(' · ')}</div>` : `<div class="sub" style="margin-top:8px">No tide station within 60 nm of this route — inland water, no tidal planning needed.</div>`}
+    <div class="sub" style="margin-top:8px;font-size:11px">${esc(tripWx.provenance)}${tripTides ? ' · ' + esc(tripTides.provenance) : ''} · fetched just now — feeding fuel, risk, and budget below</div>`;
+}
+
+async function refreshTripData() {
+  if (chart.st.waypoints.length < 2) return;
+  const seq = ++wxSeq;
+  renderTripWxCard('Fetching NOAA forecast & tides for this route…');
+  try {
+    const wx = await fetchTripWx(chart.st.waypoints);
+    if (seq !== wxSeq) return;               // a newer route superseded this fetch
+    tripWx = wx;
+    tripTides = await fetchTripTides(chart.st.waypoints).catch(() => null);
+    if (seq !== wxSeq) return;
+    // The real forecast now drives the intelligence core — no more demo weather.
+    tripState.forecast = {
+      wind_kn: wx.wind_kn, wind_from_deg: wx.wind_from_deg,
+      seas_ft: wx.seas_ft ?? 1, seas_from_deg: wx.wind_from_deg,
+    };
+    tripState.forecast_age_hours = 0;
+    tripState.data_vintage = {
+      ...tripState.data_vintage,
+      weather: `${wx.provenance} · fetched ${wx.fetched_at.slice(11, 16)}Z`,
+      ...(tripTides ? { tides: tripTides.provenance } : {}),
+    };
+    renderTripWxCard();
+    if (tripTides) $('tide-line').textContent = `Tides ${tripTides.name} (${tripTides.date}): ${tripTides.events.map(e => `${e.type} ${e.t}`).join(' · ')} · ${tripTides.provenance}`;
+    renderTrip();
+  } catch {
+    if (seq !== wxSeq) return;
+    tripWx = null; tripTides = null;
+    renderTripWxCard('Live NOAA fetch unavailable (offline, or outside NWS coverage). Trip numbers below use the manual/demo conditions — honestly labeled in the Why panel.');
+  }
+}
+function scheduleTripData() {
+  clearTimeout(wxTimer);
+  wxTimer = setTimeout(refreshTripData, 900);
+}
+$('wx-refresh').addEventListener('click', refreshTripData);
+
 // route changes (plot mode)
 let restoring = false;
 function onRouteChange() {
@@ -381,6 +438,7 @@ function onRouteChange() {
   $('route-readout').textContent = nm ? `${nm} nm plotted` : '';
   checkRouteSafety();
   renderTrip();
+  if (($('scenario') as HTMLSelectElement | null) && tab === 'explore') scheduleTripData();
   if (!restoring) {
     engine.write('plan', 'free-plan', 'update', { waypoints: chart.st.waypoints, vessel: ($('free-vessel') as HTMLSelectElement).value });
     persistSoon();
@@ -783,14 +841,17 @@ function setTab(t: Tab) {
   }
   if (t === 'explore') {
     show('panel-trip', true);
+    show('trip-wx-card', true);
     show('conditions-card', false);
     chart.st.waypoints = tripStateFreeWaypoints();
     $('tide-line').textContent = '';
     restoring = true; onRouteChange(); restoring = false;
     chart.render();
   } else if (t === 'plan') {
+    show('trip-wx-card', false);
     applyPlanScenario();
   } else {
+    show('trip-wx-card', false);
     show('conditions-card', false);
     renderVesselList();
   }
