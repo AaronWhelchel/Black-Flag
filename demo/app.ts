@@ -418,10 +418,12 @@ async function refreshTripData() {
     renderTripWxCard();
     if (tripTides) $('tide-line').textContent = `Tides ${tripTides.name} (${tripTides.date}): ${tripTides.events.map(e => `${e.type} ${e.t}`).join(' · ')} · ${tripTides.provenance}`;
     renderTrip();
-  } catch {
+  } catch (e) {
     if (seq !== wxSeq) return;
     tripWx = null; tripTides = null;
-    renderTripWxCard('Live NOAA fetch unavailable (offline, or outside NWS coverage). Trip numbers below use the manual/demo conditions — honestly labeled in the Why panel.');
+    renderTripWxCard(String((e as Error).message) === 'offline'
+      ? 'Can\u2019t reach forecast services right now (connection or firewall). Trip numbers below use the manual/demo conditions \u2014 honestly labeled in the Why panel.'
+      : 'This route is outside NWS coverage and no model fallback answered for it. Trip numbers below use the manual/demo conditions \u2014 honestly labeled in the Why panel.');
   }
 }
 function scheduleTripData() {

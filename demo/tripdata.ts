@@ -65,12 +65,46 @@ function routeMidpoint(wps: RouteWaypoint[]): { lat: number; lon: number } {
   return { lat: wps[0].lat, lon: wps[0].lon };
 }
 
+export class CoverageError extends Error {}
+
+/** NWS first (US + coastal waters), trying midpoint then endpoints; outside
+ *  NWS coverage, fall back to Open-Meteo (SRC-07, provisionally registered —
+ *  free model forecasts, worldwide). Offline throws a plain Error. */
 export async function fetchTripWx(wps: RouteWaypoint[]): Promise<TripWx> {
-  const mid = routeMidpoint(wps);
-  const pt = await get(`https://api.weather.gov/points/${mid.lat.toFixed(4)},${mid.lon.toFixed(4)}`);
+  const candidates = [
+    { p: routeMidpoint(wps), label: 'route midpoint' },
+    { p: wps[0], label: `route start (${wps[0].name})` },
+    { p: wps[wps.length - 1], label: `route end (${wps[wps.length - 1].name})` },
+  ];
+  let lastNetworkError = false;
+  for (const c of candidates) {
+    try {
+      return await fetchNws(c.p, c.label);
+    } catch (e) {
+      // 404 from NWS points = outside coverage → try next point / Open-Meteo.
+      // Anything else (timeout, network) counts as offline.
+      if (!(e instanceof CoverageError)) lastNetworkError = true;
+    }
+  }
+  try {
+    return await fetchOpenMeteo(routeMidpoint(wps));
+  } catch {
+    if (lastNetworkError) throw new Error('offline');
+    throw new CoverageError('outside all sources');
+  }
+}
+
+async function fetchNws(mid: { lat: number; lon: number }, label: string): Promise<TripWx> {
+  let pt;
+  try {
+    pt = await get(`https://api.weather.gov/points/${mid.lat.toFixed(4)},${mid.lon.toFixed(4)}`);
+  } catch (e) {
+    if (String(e).includes('404')) throw new CoverageError(label);
+    throw e;
+  }
   const fcUrl = pt?.properties?.forecast;
   const gridUrl = pt?.properties?.forecastGridData;
-  if (!fcUrl) throw new Error('no forecast for this point');
+  if (!fcUrl) throw new CoverageError(label);
   const fc = await get(fcUrl);
   const periods = fc?.properties?.periods ?? [];
   if (!periods.length) throw new Error('no forecast periods');
@@ -101,7 +135,38 @@ export async function fetchTripWx(wps: RouteWaypoint[]): Promise<TripWx> {
     wind_kn: wind, wind_from_deg: dir, gust_kn: gust, seas_ft: seas,
     summary: periods[0].shortForecast,
     detailed: periods[0].detailedForecast,
-    provenance: `NWS forecast near ${office?.city ?? mid.lat.toFixed(2) + ',' + mid.lon.toFixed(2)}${seas !== null ? ' · waves: NWS marine grid' : ' · no marine wave grid here (inland)'}`,
+    provenance: `NWS forecast near ${office?.city ?? mid.lat.toFixed(2) + ',' + mid.lon.toFixed(2)} (${label})${seas !== null ? ' · waves: NWS marine grid' : ' · no marine wave grid here (inland)'}`,
+    fetched_at: new Date().toISOString(),
+  };
+}
+
+/** Open-Meteo — international fallback (Register SRC-07, provisional: free
+ *  model forecasts worldwide; commercial licensing must be settled before
+ *  launch — flagged as a founder decision). Model data, not an official
+ *  national forecast: said so in the provenance. */
+async function fetchOpenMeteo(mid: { lat: number; lon: number }): Promise<TripWx> {
+  const fc = await get(`https://api.open-meteo.com/v1/forecast?latitude=${mid.lat.toFixed(4)}&longitude=${mid.lon.toFixed(4)}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&forecast_days=1&timezone=auto`);
+  const h = fc?.hourly;
+  if (!h?.wind_speed_10m?.length) throw new Error('no open-meteo data');
+  let wind = 0, dir = 0, gust: number | null = null;
+  const n = Math.min(24, h.wind_speed_10m.length);
+  for (let i = 0; i < n; i++) {
+    const w = Number(h.wind_speed_10m[i]);
+    if (Number.isFinite(w) && w >= wind) { wind = Math.round(w); dir = Math.round(Number(h.wind_direction_10m?.[i] ?? 0)); }
+    const g = Number(h.wind_gusts_10m?.[i]);
+    if (Number.isFinite(g)) gust = Math.max(gust ?? 0, Math.round(g));
+  }
+  let seas: number | null = null;
+  try {
+    const mar = await get(`https://marine-api.open-meteo.com/v1/marine?latitude=${mid.lat.toFixed(4)}&longitude=${mid.lon.toFixed(4)}&hourly=wave_height&forecast_days=1&timezone=auto`);
+    const wv = (mar?.hourly?.wave_height ?? []).slice(0, 24).map(Number).filter(Number.isFinite);
+    if (wv.length) seas = Math.round(Math.max(...wv) * 3.281 * 10) / 10;
+  } catch { /* no marine model here — stays null, said honestly */ }
+  return {
+    wind_kn: wind, wind_from_deg: dir, gust_kn: gust, seas_ft: seas,
+    summary: 'Model forecast (route outside NWS coverage)',
+    detailed: `Open-Meteo model guidance for ${mid.lat.toFixed(2)}, ${mid.lon.toFixed(2)}: winds to ${wind} kt${gust ? `, gusts ${gust} kt` : ''}${seas !== null ? `, waves to ${seas} ft` : ''} over the next 24 h. Model data, not an official national forecast — treat accordingly.`,
+    provenance: `Open-Meteo (international model fallback, SRC-07 provisional)${seas !== null ? ' · waves: Open-Meteo marine' : ''}`,
     fetched_at: new Date().toISOString(),
   };
 }
