@@ -1,0 +1,11 @@
+{
+  "name": "@blackflag/core",
+  "version": "0.1.0",
+  "description": "Shared Intelligence Core — pure TS, zero dependencies. Every answer is an Explanation.",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "tsx --test test/*.test.ts"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "pack": "live-obs-tides",
+  "built_at": "2026-08-02T20:59Z",
+  "provenance": {
+    "ndbc": {
+      "source": "NOAA NDBC realtime2",
+      "license": "public-domain/noaa",
+      "fetched_at": "2026-08-02T20:59Z",
+      "method": "sandbox snapshot via permitted fetch channel; production path is apps/workers/src/ndbc.ts",
+      "freshness_slo": "PT15M",
+      "note": "several stations have partial sensor outages — ages shown honestly per Explainability Standard"
+    },
+    "coops": {
+      "source": "NOAA CO-OPS predictions API (hilo, MLLW, lst_ldt, english units)",
+      "license": "public-domain/noaa",
+      "fetched_at": "2026-08-02T20:59Z",
+      "method": "sandbox snapshot via permitted fetch channel; production path is apps/workers/src/coops.ts"
+    }
+  },
+  "buoys": [
+    {
+      "id": "44025",
+      "name": "Long Island 33 nm S",
+      "lat": 40.251, "lon": -73.164,
+      "obs_time": "2026-06-01T04:20Z",
+      "wvht_m": 1.8, "dpd_s": 6, "apd_s": 4.9, "mwd_deg": 222,
+      "pres_hpa": 1013.0, "wtmp_c": 13.3,
+      "wind": null,
+      "outage": "anemometer offline"
+    },
+    {
+      "id": "44091",
+      "name": "Barnegat NJ",
+      "lat": 39.778, "lon": -73.769,
+      "obs_time": "2026-07-03T01:00Z",
+      "wvht_m": 1.2, "dpd_s": 5, "apd_s": 3.8, "mwd_deg": 203,
+      "atmp_c": 23.6, "wtmp_c": 22.5,
+      "wind": null,
+      "outage": "anemometer offline"
+    },
+    {
+      "id": "VAKF1",
+      "name": "Virginia Key FL",
+      "lat": 25.731, "lon": -80.162,
+      "obs_time": "2026-05-22T08:42Z",
+      "wind": { "dir_deg": 120, "spd_ms": 5.1, "gst_ms": 6.2 },
+      "pres_hpa": 1015.9,
+      "outage": "wave sensors offline"
+    }
+  ],
+  "tides": [
+    {
+      "station": "8533051",
+      "name": "Manasquan area (NJ)",
+      "date": "2026-08-04",
+      "datum": "MLLW",
+      "events": [
+        { "t": "04:06", "v_ft": 1.012, "type": "H" },
+        { "t": "10:43", "v_ft": 0.284, "type": "L" },
+        { "t": "16:40", "v_ft": 0.969, "type": "H" },
+        { "t": "23:06", "v_ft": 0.396, "type": "L" }
+      ]
+    },
+    {
+      "station": "8723214",
+      "name": "Virginia Key, Miami FL",
+      "date": "2026-08-05",
+      "datum": "MLLW",
+      "events": [
+        { "t": "02:00", "v_ft": 2.064, "type": "H" },
+        { "t": "08:22", "v_ft": -0.006, "type": "L" },
+        { "t": "14:54", "v_ft": 2.048, "type": "H" },
+        { "t": "20:49", "v_ft": 0.368, "type": "L" }
+      ]
+    }
+  ]
+}

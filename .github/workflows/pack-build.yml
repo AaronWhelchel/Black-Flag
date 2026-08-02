@@ -1,0 +1,58 @@
+name: Chart pack build (ENC)
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "Region key from tools/packs/regions.json"
+        required: true
+        default: nj-manasquan
+  schedule:
+    # Weekly — matches NOAA ENC re-issue cadence and the Register SRC-01 SLO
+    # (pack rebuilt ≤ 7 days after NOAA update).
+    - cron: "0 6 * * 1"
+
+jobs:
+  selftest:
+    # Pipeline self-test runs first — synthetic cell through the full
+    # GDAL → tippecanoe path. A broken pipeline never touches real cells.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y gdal-bin tippecanoe zip unzip
+      - run: node tools/packs/selftest.mjs
+
+  build:
+    needs: selftest
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        region: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.region)) || fromJSON('["nj-manasquan","fl-keys-bimini"]') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y gdal-bin tippecanoe zip unzip jq
+      - name: Download ENC cells (NOAA, public domain)
+        run: |
+          mkdir -p build/cells
+          for cell in $(jq -r --arg r "${{ matrix.region }}" '.regions[$r].cells[]' tools/packs/regions.json); do
+            echo "fetching $cell"
+            curl -fsSL -o "build/cells/$cell.zip" "https://charts.noaa.gov/ENCs/$cell.zip"
+          done
+      - name: Build pack
+        run: node tools/packs/enc.mjs "${{ matrix.region }}" build/cells/*.zip
+      - name: Checksum (Register R4 — verify before publish)
+        run: |
+          cd build/enc/${{ matrix.region }}
+          sha256sum *.pmtiles manifest.json > SHA256SUMS
+          cat SHA256SUMS
+      - name: Upload pack artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: enc-pack-${{ matrix.region }}
+          path: build/enc/${{ matrix.region }}
+          retention-days: 30
+      # Publish step (object storage + CDN) lands with production credentials:
+      # a failed checksum or schema gate quarantines — nothing publishes on a
+      # warning (Register R4).

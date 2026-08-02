@@ -1,0 +1,27 @@
+{
+  "name": "blackflag",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Black Flag — maritime intelligence platform. Decision support for captains.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test -w @blackflag/core && npm run test -w @blackflag/workers && npm run test -w @blackflag/sync",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "npm run build -w @blackflag/web",
+    "demo": "node demo/build.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/topojson-client": "^3.1.5",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
+  }
+}

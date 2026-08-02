@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Black Flag</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface: #f2f5f8; --card: #ffffff; --card-2: #f6f8fa; --line: #e3e8ee;
+    --ink: #17202b; --ink-2: #5a6673; --ink-3: #8b95a1;
+    --accent: #0b6bcb; --gold: #c9922e;
+    --good: #1e8e4e; --bad: #d9484f; --warn: #b8860b;
+    --wind: #2a78d6; --seas: #1baf7a;
+    --rough: rgba(217, 72, 79, 0.10);
+    --shadow: 0 1px 3px rgba(23,32,43,.08), 0 4px 16px rgba(23,32,43,.06);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--surface); color: var(--ink); font: 14px/1.5 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
+
+  #appbar { position: sticky; top: 0; z-index: 30; background: rgba(255,255,255,.92); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  #appbar .inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; gap: 16px; padding: 10px 20px; }
+  .wordmark { font-family: Georgia, serif; font-weight: 700; font-size: 19px; letter-spacing: 2px; white-space: nowrap; }
+  .wordmark .flag { color: var(--gold); }
+  #searchwrap { position: relative; flex: 1; max-width: 520px; }
+  #search { width: 100%; padding: 9px 14px 9px 36px; border: 1px solid var(--line); border-radius: 22px; background: var(--card-2); font-size: 14px; color: var(--ink); outline: none; }
+  #search:focus { border-color: var(--accent); background: #fff; }
+  #searchwrap::before { content: '⌕'; position: absolute; left: 13px; top: 7px; color: var(--ink-3); font-size: 17px; }
+  #search-results { position: absolute; top: 42px; left: 0; right: 0; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; display: none; z-index: 40; }
+  .sr { padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .sr:hover { background: var(--card-2); }
+  .sr .nm { font-weight: 600; }
+  .sr .meta { color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+  nav { display: flex; gap: 4px; background: var(--card-2); border: 1px solid var(--line); border-radius: 20px; padding: 3px; }
+  nav button { border: 0; background: none; padding: 6px 16px; border-radius: 16px; font-size: 13.5px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+  nav button.on { background: var(--ink); color: #fff; }
+
+  main { max-width: 1280px; margin: 14px auto; padding: 0 20px; }
+  .layout { display: grid; grid-template-columns: minmax(420px, 1fr) 400px; gap: 16px; align-items: start; }
+  @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+
+  #map-card { background: var(--card); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+  #chart { width: 100%; display: block; cursor: grab; touch-action: none; }
+  #chart:active { cursor: grabbing; }
+  #map-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-top: 1px solid var(--line); }
+  .seg { display: inline-flex; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 2px; }
+  .seg button { border: 0; background: none; padding: 5px 12px; border-radius: 8px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+  .seg button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 12.5px; cursor: pointer; }
+  .toggle input { accent-color: var(--accent); }
+  #route-readout { margin-left: auto; color: var(--gold); font-size: 13px; font-weight: 700; }
+  #plot-actions button, .btn { background: #fff; border: 1px solid var(--line); color: var(--ink-2); border-radius: 8px; padding: 5px 12px; cursor: pointer; font-size: 12.5px; }
+  #plot-actions button:hover, .btn:hover { color: var(--ink); border-color: var(--ink-3); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  #tide-line { padding: 0 14px 10px; font-size: 12px; color: var(--ink-2); }
+
+  .card { background: var(--card); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; margin-bottom: 14px; }
+  .card h3 { font-size: 11.5px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--ink-3); margin-bottom: 10px; font-weight: 700; }
+  .sub { color: var(--ink-2); font-size: 13px; }
+  .row1 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .big { font-family: Georgia, serif; font-size: 38px; font-weight: 700; }
+  .badge { display: inline-block; margin: 8px 0; padding: 3px 11px; border-radius: 14px; font-size: 12px; font-weight: 700; letter-spacing: .3px; }
+  .badge.go { background: rgba(30,142,78,.1); color: var(--good); }
+  .badge.ok { background: rgba(184,134,11,.12); color: var(--warn); }
+  .badge.no { background: rgba(217,72,79,.1); color: var(--bad); }
+  button.linkish { background: none; border: 1px solid var(--line); color: var(--ink-2); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  button.linkish:hover { color: var(--ink); border-color: var(--ink-3); }
+  .why-body { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .step { margin-bottom: 10px; }
+  .step .rule { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
+  .step p { margin: 2px 0; }
+  .step .src { font-size: 11px; color: var(--ink-3); font-family: ui-monospace, monospace; }
+  .alts h4, .caveats h4 { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); margin: 10px 0 4px; }
+  .alt, .cv { color: var(--ink-2); font-size: 13px; margin: 2px 0; }
+  .prov { margin-top: 10px; font-size: 11px; color: var(--ink-3); font-family: ui-monospace, monospace; }
+  select, input[type=number], input[type=text] { background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 13.5px; }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+  .speeds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .speed { background: var(--card-2); border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; }
+  .speed.sel { border-color: var(--accent); background: rgba(11,107,203,.05); }
+  .speed .kn { font-family: Georgia, serif; font-size: 23px; font-weight: 700; }
+  .speed .nm { color: var(--ink-2); font-size: 11.5px; }
+  .speed .tag { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); font-weight: 700; }
+  .speed.sel .tag { color: var(--accent); }
+
+  .budget-rows { display: flex; flex-direction: column; gap: 6px; }
+  .brow { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 13.5px; }
+  .brow b { color: var(--ink); font-weight: 600; }
+  .brow.total { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 6px; font-size: 15px; }
+  .brow.total b { font-family: Georgia, serif; font-size: 24px; }
+  .binputs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; align-items: center; color: var(--ink-2); font-size: 12.5px; }
+  .binputs input[type=number] { width: 70px; }
+
+  #risk-head { display: flex; align-items: center; gap: 12px; }
+  #risk-score { font-family: Georgia, serif; font-size: 36px; font-weight: 700; }
+  .risk-low #risk-score { color: var(--good); } .risk-moderate #risk-score { color: var(--warn); }
+  .risk-elevated #risk-score { color: #d97b2e; } .risk-high #risk-score { color: var(--bad); }
+  .rc { margin: 8px 0; }
+  .rc .bar { height: 5px; background: var(--card-2); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  .rc .fill { height: 100%; background: var(--bad); border-radius: 3px; }
+  .rc .name { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); font-weight: 700; }
+  .rc .det { color: var(--ink-2); font-size: 12.5px; }
+  .mits { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .mit { color: var(--ink-2); font-size: 13px; margin: 3px 0; }
+  .mit::before { content: '→ '; color: var(--accent); }
+  #risk-off-note { color: var(--ink-3); font-size: 12px; display: none; }
+
+  #fuel-nums { display: flex; align-items: baseline; gap: 8px; }
+  #fuel-req { font-family: Georgia, serif; font-size: 32px; font-weight: 700; }
+  .unit { color: var(--ink-2); }
+  #fuel-bar { position: relative; height: 12px; background: var(--card-2); border: 1px solid var(--line); border-radius: 6px; margin: 10px 0 4px; overflow: hidden; }
+  #fuel-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 6px 0 0 6px; transition: width .15s; background: var(--wind); }
+  #fuel-reserve { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--gold); }
+  .fuel-foot { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 12px; }
+  .margin.ok { color: var(--good); } .margin.no { color: var(--bad); font-weight: 700; }
+
+  #slider-row { position: relative; padding-top: 4px; }
+  #slider { width: 100%; accent-color: var(--accent); }
+  #slider-scale { display: flex; justify-content: space-between; color: var(--ink-3); font-size: 11px; }
+  #slider-label-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+  #slider-label { font-family: Georgia, serif; font-size: 20px; }
+  #slider-rec-mark { position: absolute; top: 0; width: 2px; height: 8px; background: var(--good); }
+
+  .tl { width: 100%; height: auto; display: block; }
+  .tl .grid { stroke: var(--line); stroke-width: 1; }
+  .tl .ax { fill: var(--ink-3); font-size: 10px; }
+  .tl .ax.lim { fill: var(--bad); }
+  .tl .lbl { font-size: 11px; font-weight: 700; }
+  .tl .limit { stroke: var(--bad); stroke-width: 1; stroke-dasharray: 3 4; opacity: .7; }
+  .tl .rough { fill: var(--rough); }
+  .tl .cursor { stroke: var(--ink-3); stroke-width: 1; }
+  .tl .dep { stroke: var(--gold); stroke-width: 2; }
+  .tl-cap { color: var(--ink-3); font-size: 11px; margin-top: 2px; }
+  #tip { position: fixed; display: none; background: var(--ink); color: #fff; border-radius: 8px; padding: 6px 10px; font-size: 12px; pointer-events: none; z-index: 50; }
+  .rough-key { color: var(--bad); }
+
+  #wx-title { font-size: 17px; font-weight: 700; }
+  #wx-sub { color: var(--ink-2); font-size: 12.5px; margin-bottom: 8px; }
+  .wxp { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--line); }
+  .wxp .t { font-weight: 700; min-width: 86px; }
+  .wxp .d { color: var(--ink-2); font-size: 13px; }
+  #wx-detail { margin-top: 8px; color: var(--ink); font-size: 13.5px; }
+  #wx-src { margin-top: 8px; font-size: 11px; color: var(--ink-3); }
+
+  #obs-form { display: none; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .obs-item { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+  .obs-item .k { color: var(--ink-3); font-size: 12px; }
+  .obs-item button { background: none; border: 0; color: var(--bad); cursor: pointer; font-size: 12.5px; }
+
+  .vform { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .vform label { font-size: 12px; color: var(--ink-2); display: flex; flex-direction: column; gap: 4px; }
+  table.curve { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  table.curve th { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); text-align: left; padding: 4px 6px; }
+  table.curve td { padding: 3px 4px; }
+  table.curve input { width: 100%; padding: 5px 8px; }
+  table.curve button { background: none; border: 0; color: var(--bad); cursor: pointer; }
+  .vessel-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); }
+  .vessel-item .nm { font-weight: 600; }
+  .vessel-item .meta { color: var(--ink-3); font-size: 12px; }
+
+  #vintage { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 0 2px; }
+  .chip { background: var(--card-2); border: 1px solid var(--line); color: var(--ink-2); border-radius: 14px; padding: 2px 10px; font-size: 11px; }
+  footer { max-width: 1280px; margin: 8px auto 24px; padding: 0 20px; color: var(--ink-3); font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <div id="appbar"><div class="inner">
+    <div class="wordmark">BLACK <span class="flag">⚑</span> FLAG</div>
+    <div id="searchwrap">
+      <input id="search" placeholder="Search any waterway — try “Patoka”…" autocomplete="off">
+      <div id="search-results"></div>
+    </div>
+    <nav>
+      <button id="tab-explore" class="on">Explore</button>
+      <button id="tab-plan">Plan</button>
+      <button id="tab-vessel">Vessel</button>
+    </nav>
+    <span class="chip" id="sync-chip" title="What a lost device would cost is always visible">…</span>
+  </div></div>
+
+  <main>
+    <div class="layout">
+      <div>
+        <div id="map-card">
+          <canvas id="chart" width="800" height="560"></canvas>
+          <div id="map-controls">
+            <div class="seg" id="map-mode">
+              <button data-mode="satellite" class="on">Satellite</button>
+              <button data-mode="chart">Chart</button>
+            </div>
+            <div class="seg" id="click-mode">
+              <button data-cm="browse" class="on">Browse</button>
+              <button data-cm="plot">Plot route</button>
+              <button data-cm="obstacle">Mark obstacle</button>
+            </div>
+            <label class="toggle"><input type="checkbox" id="ly-buoys" checked> buoys</label>
+            <label class="toggle"><input type="checkbox" id="ly-piracy"> piracy</label>
+            <span id="plot-actions" class="hidden">
+              <button id="undo-wp">undo</button><button id="clear-wp">clear</button>
+            </span>
+            <span id="route-readout"></span>
+          </div>
+          <div id="route-warnings" style="display:none;padding:10px 14px;border-top:1px solid var(--line)"></div>
+          <div id="tide-line"></div>
+        </div>
+        <div id="vintage"></div>
+      </div>
+
+      <div id="side">
+        <!-- EXPLORE -->
+        <div id="view-explore">
+          <div class="card" id="wx-card">
+            <h3>Conditions at destination</h3>
+            <div id="wx-title">Search a waterway to check it first</div>
+            <div id="wx-sub">Patoka rough? Check Rough River before you trailer anywhere.</div>
+            <div id="wx-body"></div>
+            <div id="wx-src"></div>
+          </div>
+          <div class="card">
+            <h3>Your obstacle marks</h3>
+            <div class="sub">Switch the map to “Mark obstacle”, then tap the spot. Tap any pin to view, photograph, or remove it. Private to you — community sharing comes later, with verification.</div>
+            <div class="sub" style="margin-top:6px"><span style="color:#d9484f">●</span> hazards · <span style="color:#e07b39">●</span> shallow/shoal · <span style="color:#b8860b">●</span> bridge/no-wake · <span style="color:#0b6bcb">●</span> marina/fuel/ramp · <span style="color:#1e8e4e">●</span> anchorage</div>
+            <div id="obs-form">
+              <input type="text" id="obs-label" placeholder="Label — e.g. Submerged timber" style="flex:1;min-width:160px">
+              <select id="obs-kind">
+                <optgroup label="Hazards">
+                  <option>hazard</option><option>rock</option><option>shoal</option><option>shallow</option>
+                  <option>timber</option><option>wreck</option><option>bridge</option><option>no-wake</option>
+                </optgroup>
+                <optgroup label="Places">
+                  <option>marina</option><option>fuel</option><option>ramp</option><option>anchorage</option>
+                </optgroup>
+                <option>other</option>
+              </select>
+              <label class="btn" style="cursor:pointer">📷 photo<input type="file" id="obs-photo" accept="image/*" style="display:none"></label>
+              <button class="btn primary" id="obs-save">Save</button>
+              <button class="btn" id="obs-cancel">Cancel</button>
+            </div>
+            <div id="obs-list"></div>
+          </div>
+          <div id="panel-trip">
+            <div class="card">
+              <h3>Boat speeds · <span class="sub" id="trip-vessel-name"></span></h3>
+              <div style="margin-bottom:8px"><select id="free-vessel"></select></div>
+              <div class="speeds">
+                <div class="speed" data-speed="best_economy"><div class="tag">best economy</div><div class="kn"><span id="sp-eco">—</span><span class="sub"> kn</span></div><div class="nm" id="sp-eco-d"></div></div>
+                <div class="speed" data-speed="cruise"><div class="tag">cruise</div><div class="kn"><span id="sp-cru">—</span><span class="sub"> kn</span></div><div class="nm" id="sp-cru-d"></div></div>
+                <div class="speed" data-speed="top"><div class="tag">top</div><div class="kn"><span id="sp-top">—</span><span class="sub"> kn</span></div><div class="nm" id="sp-top-d"></div></div>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Trip budget</h3>
+              <div class="row1"><span id="trip-dist" class="big">—</span><span class="sub">nm ·</span><span id="trip-time" class="sub"></span></div>
+              <div id="trip-fuel-flag" class="badge ok hidden"></div>
+              <div class="budget-rows" style="margin-top:8px">
+                <div class="brow"><span id="b-fuel-label">Fuel</span><b id="b-fuel">—</b></div>
+                <div class="brow"><span id="b-prov-label">Provisions</span><b id="b-prov">—</b></div>
+                <div class="brow total"><span>Estimated total</span><b id="b-total">—</b></div>
+              </div>
+              <div class="binputs">
+                crew <input type="number" id="in-crew" min="1" max="12" value="2">
+                fuel $/gal <input type="number" id="in-fuel" min="1" step="0.05" value="4.85">
+                food $/day <input type="number" id="in-food" min="5" step="5" value="35">
+                <label class="toggle"><input type="checkbox" id="in-fish" checked> fishing offsets food</label>
+              </div>
+              <button id="why-trip-btn" class="linkish" style="margin-top:10px">Why? ▾</button>
+              <div id="why-trip-body" class="why-body" style="display:none"></div>
+            </div>
+            <div class="card" id="risk-card">
+              <h3 style="display:flex;justify-content:space-between">Risk factor
+                <label class="toggle"><input type="checkbox" id="risk-toggle" checked> show</label>
+              </h3>
+              <div id="risk-off-note">Risk display off. The assessment is still computed and logged — Black Flag doesn’t un-know things.</div>
+              <div id="risk-body">
+                <div id="risk-head"><span id="risk-score">—</span><span id="risk-band" class="badge no">—</span></div>
+                <div id="risk-components"></div>
+                <div class="mits" id="risk-mits"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PLAN -->
+        <div id="view-plan" class="hidden">
+          <div class="card" style="padding:12px 16px">
+            <select id="scenario" style="width:100%">
+              <option value="manasquan">Manasquan → Block Island · Restless-31 (go/no-go)</option>
+              <option value="bimini">Key Largo → Bimini · Tahoe T16 (trip budget + risk)</option>
+            </select>
+          </div>
+          <div id="panel-passage">
+            <div class="card" id="headline">
+              <h3>Departure</h3>
+              <div class="row1"><span class="sub">Depart</span><span id="dep-time" class="big">—</span><span id="arr-time" class="sub"></span></div>
+              <div id="verdict" class="badge go">—</div>
+              <p id="headline-reason"></p>
+              <button id="why-btn" class="linkish">Why? ▾</button>
+              <div id="why-body" class="why-body" style="display:none"></div>
+            </div>
+            <div class="card">
+              <h3>What if you left at…</h3>
+              <div id="slider-label-row"><span id="slider-label">—</span><span class="sub">drag to test any departure</span></div>
+              <div id="slider-row">
+                <div id="slider-rec-mark" title="recommended"></div>
+                <input id="slider" type="range">
+                <div id="slider-scale"><span>05:30</span><span>07:00</span><span>08:30</span><span>10:00</span><span>12:00</span></div>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Fuel</h3>
+              <div id="fuel-nums"><span id="fuel-req">—</span><span class="unit">gal required</span><span class="sub" id="fuel-hours"></span></div>
+              <div id="fuel-bar"><div id="fuel-fill"></div><div id="fuel-reserve" title="reserve line"></div></div>
+              <div class="fuel-foot"><span id="fuel-avail"></span><span id="fuel-margin" class="margin ok"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VESSEL -->
+        <div id="view-vessel" class="hidden">
+          <div class="card">
+            <h3>Your vessels</h3>
+            <div id="vessel-list"></div>
+            <button class="btn primary" id="v-new" style="margin-top:10px">＋ Add vessel</button>
+          </div>
+          <div class="card hidden" id="v-editor">
+            <h3 id="v-editor-title">New vessel</h3>
+            <div class="vform">
+              <label>Name <input type="text" id="v-name" placeholder="e.g. Reel Time"></label>
+              <label>Type <select id="v-type">
+                <option value="open_bow">Open bow / bowrider</option>
+                <option value="center_console">Center console</option>
+                <option value="cruiser">Cruiser</option>
+                <option value="sportfish">Sportfish</option>
+                <option value="sailboat">Sailboat</option>
+                <option value="pwc">PWC</option>
+              </select></label>
+              <label>Length overall (ft) <input type="number" id="v-loa" min="8" max="120" step="0.1"></label>
+              <label>Max comfortable seas (ft) <input type="number" id="v-seas" min="1" max="15" step="0.5"></label>
+              <label>Usable fuel (gal) <input type="number" id="v-fuel" min="1" step="1"></label>
+              <label>Reserve (%) <input type="number" id="v-reserve" min="0" max="50" step="5"></label>
+              <label>Stated cruise (kn) <input type="number" id="v-cruise" min="3" step="0.5"></label>
+            </div>
+            <h3 style="margin-top:14px">Engine curve <span class="sub" style="text-transform:none;letter-spacing:0">— from your gauges or a sea trial; speeds & burn derive from this</span></h3>
+            <table class="curve">
+              <thead><tr><th>RPM</th><th>Speed (kn)</th><th>Burn (gph)</th><th></th></tr></thead>
+              <tbody id="curve-body"></tbody>
+            </table>
+            <button class="btn" id="v-addrow">＋ row</button>
+            <div id="v-preview" class="sub" style="margin-top:10px"></div>
+            <div style="margin-top:12px;display:flex;gap:8px">
+              <button class="btn primary" id="v-save">Save vessel</button>
+              <button class="btn" id="v-cancel">Cancel</button>
+              <button class="btn" id="v-delete" style="color:var(--bad);margin-left:auto">Delete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card hidden" id="conditions-card">
+      <h3>Conditions · <span class="rough-key">shaded = inlet rough (ebb vs swell)</span> · gold line = your departure</h3>
+      <div id="wind-chart"></div>
+      <div class="tl-cap">Wind, kt — NBM issued 05:00Z</div>
+      <div id="seas-chart" style="margin-top:8px"></div>
+      <div class="tl-cap">Significant seas, ft — offshore of the route</div>
+    </div>
+  </main>
+
+  <div id="tip"></div>
+
+  <div id="mark-view" style="display:none;position:fixed;inset:0;background:rgba(23,32,43,.55);z-index:60;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:16px;max-width:460px;width:92%;padding:18px;box-shadow:var(--shadow)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div id="mv-title" style="font-weight:700;font-size:16px">—</div>
+        <button class="btn" id="mv-close">✕</button>
+      </div>
+      <div id="mv-meta" class="sub" style="margin:4px 0 10px"></div>
+      <img id="mv-photo" style="display:none;width:100%;border-radius:10px" alt="captain photo">
+      <div id="mv-nophoto" class="sub">No photo yet — add one so other captains (eventually) can see the condition.</div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <label class="btn primary" style="cursor:pointer">Add / replace photo<input type="file" id="mv-photo-input" accept="image/*" style="display:none"></label>
+        <button class="btn" id="mv-remove" style="color:var(--bad);margin-left:auto">Remove mark</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span>Every number is computed by <b>@blackflag/core</b> — the same package the cloud runs.</span>
+    <span>Buoys & tides: real NOAA data. Satellite: Esri World Imagery (online). Search: OpenStreetMap. Weather: NWS (online, US).</span>
+    <span>Not for navigation.</span>
+  </footer>
+
+<script>/*__BUNDLE__*/</script>
+</body>
+</html>

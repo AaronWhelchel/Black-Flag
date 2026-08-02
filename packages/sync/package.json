@@ -1,0 +1,11 @@
+{
+  "name": "@blackflag/sync",
+  "version": "0.1.0",
+  "description": "Offline-first sync engine — oplog, HLC, field-level LWW. Trust-critical core.",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "tsx --test test/*.test.ts"
+  }
+}

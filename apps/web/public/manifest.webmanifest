@@ -1,0 +1,10 @@
+{
+  "name": "Black Flag",
+  "short_name": "Black Flag",
+  "description": "Maritime intelligence — decision support for captains.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#10141a",
+  "theme_color": "#10141a",
+  "icons": []
+}

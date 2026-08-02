@@ -1,0 +1,10 @@
+{
+  "name": "@blackflag/workers",
+  "version": "0.1.0",
+  "description": "Ingestion workers — NDBC, CO-OPS, (next) NBM/ENC. Every source registered.",
+  "type": "module",
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "build-pack": "tsx src/index.ts"
+  }
+}

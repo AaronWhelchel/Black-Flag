@@ -1,0 +1,9 @@
+{
+  "name": "@blackflag/web",
+  "version": "0.1.0",
+  "description": "The Captain's PWA — installable, offline-first planning surface.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}
