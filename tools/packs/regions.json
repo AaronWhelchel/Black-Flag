@@ -1,13 +1,33 @@
 {
-  "comment": "First chart-pack regions. Cells from the NOAA ENC catalog (https://charts.noaa.gov/ENCs/) — public domain (Register SRC-01). Band 4 = approach, band 5 = harbor scale.",
+  "comment": "Regions are bounding boxes; actual NOAA cell IDs are discovered at build time from the official ENC product catalog (tools/packs/catalog.mjs) \u2014 hardcoded cell names rot as NOAA reschemes. Bands: 4=approach, 5=harbor.",
   "regions": {
     "nj-manasquan": {
-      "name": "New Jersey — Manasquan to Sandy Hook",
-      "cells": ["US5NJ51M", "US5NJ61M", "US4NJ10M"]
+      "name": "New Jersey \u2014 Sandy Hook to Barnegat",
+      "bbox": [
+        -74.35,
+        39.9,
+        -73.7,
+        40.55
+      ],
+      "bands": [
+        4,
+        5
+      ],
+      "max_cells": 8
     },
     "fl-keys-bimini": {
-      "name": "Florida — Key Largo / Miami approaches",
-      "cells": ["US4FL11M", "US5FL18M", "US4FL14M"]
+      "name": "Florida \u2014 Miami / Biscayne / Key Largo approaches",
+      "bbox": [
+        -80.6,
+        24.9,
+        -79.9,
+        25.9
+      ],
+      "bands": [
+        4,
+        5
+      ],
+      "max_cells": 8
     }
   }
 }

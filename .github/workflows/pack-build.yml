@@ -14,14 +14,16 @@ on:
 
 jobs:
   selftest:
-    # Pipeline self-test runs first — synthetic cell through the full
-    # GDAL → tippecanoe path. A broken pipeline never touches real cells.
+    # Pipeline self-tests run first — synthetic cell through the full
+    # GDAL → tippecanoe path, and catalog discovery against a synthetic
+    # catalog. A broken pipeline never touches real cells.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y gdal-bin tippecanoe zip unzip
       - run: node tools/packs/selftest.mjs
+      - run: node tools/packs/catalog.selftest.mjs
 
   build:
     needs: selftest
@@ -32,14 +34,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
-        run: sudo apt-get update && sudo apt-get install -y gdal-bin tippecanoe zip unzip jq
-      - name: Download ENC cells (NOAA, public domain)
+        run: sudo apt-get update && sudo apt-get install -y gdal-bin tippecanoe zip unzip
+      - name: Discover cells from the official NOAA ENC catalog
+        run: |
+          mkdir -p build
+          curl -fsSL -o build/ENCProdCat.xml "https://charts.noaa.gov/ENCs/ENCProdCat_19115.xml"
+          node tools/packs/catalog.mjs build/ENCProdCat.xml "${{ matrix.region }}" | tee build/cells.txt
+      - name: Download discovered cells (NOAA, public domain)
         run: |
           mkdir -p build/cells
-          for cell in $(jq -r --arg r "${{ matrix.region }}" '.regions[$r].cells[]' tools/packs/regions.json); do
+          ok=0
+          while read -r cell; do
             echo "fetching $cell"
-            curl -fsSL -o "build/cells/$cell.zip" "https://charts.noaa.gov/ENCs/$cell.zip"
-          done
+            if curl -fsSL -o "build/cells/$cell.zip" "https://charts.noaa.gov/ENCs/$cell.zip"; then
+              ok=$((ok+1))
+            else
+              echo "::warning::cell $cell listed in catalog but download failed — skipped (reported, not hidden)"
+              rm -f "build/cells/$cell.zip"
+            fi
+          done < build/cells.txt
+          if [ "$ok" -eq 0 ]; then echo "::error::no cells downloaded — quarantining build (Register R4)"; exit 1; fi
+          ls -la build/cells/
       - name: Build pack
         run: node tools/packs/enc.mjs "${{ matrix.region }}" build/cells/*.zip
       - name: Checksum (Register R4 — verify before publish)
