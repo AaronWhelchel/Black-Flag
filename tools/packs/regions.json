@@ -28,6 +28,13 @@
         5
       ],
       "max_cells": 8
+    },
+    "ky-barkley-lakes": {
+      "name": "Kentucky Lake & Lake Barkley \u2014 Tennessee R. mi 0\u2013210 + Cumberland R. mi 0\u2013125 (USACE IENC)",
+      "ienc": [
+        { "code": "TN", "from": 0, "to": 9 },
+        { "code": "CR", "from": 0, "to": 5 }
+      ]
     }
   }
 }

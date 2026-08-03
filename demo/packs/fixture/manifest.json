@@ -1,7 +1,7 @@
 {
   "pack": "enc",
   "region": "fixture-keys",
-  "built_at": "2026-08-03T15:24:24.122Z",
+  "built_at": "2026-08-03T19:15:20.273Z",
   "layers": {
     "depth-areas": "fixture-keys-depth-areas.pmtiles",
     "depth-contours": "fixture-keys-depth-contours.pmtiles",
@@ -11,7 +11,12 @@
     "lights": "fixture-keys-lights.pmtiles",
     "obstructions": "fixture-keys-obstructions.pmtiles",
     "wrecks": "fixture-keys-wrecks.pmtiles",
-    "restricted-areas": "fixture-keys-restricted-areas.pmtiles"
+    "restricted-areas": "fixture-keys-restricted-areas.pmtiles",
+    "sailing-line": "fixture-keys-sailing-line.pmtiles",
+    "mile-markers": "fixture-keys-mile-markers.pmtiles",
+    "locks": "fixture-keys-locks.pmtiles",
+    "dams": "fixture-keys-dams.pmtiles",
+    "bridges": "fixture-keys-bridges.pmtiles"
   },
   "provenance": {
     "source": "SYNTHETIC FIXTURE — test data, not a chart",

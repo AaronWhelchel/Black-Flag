@@ -74,7 +74,26 @@ const RESARE = fc([
   poly(box(-80.50, 24.88, -80.44, 24.92), { CATREA: 4, OBJNAM: 'Fixture Sanctuary (test)' }),
 ]);
 
-const layers = { DEPARE, DEPCNT, SOUNDG: SOUNDG_FC, LIGHTS, BOYLAT, WRECKS, OBSTRN, COALNE, RESARE };
+// ---- inland waterway layers (IENC-style) -----------------------------------
+// A sailing line running the deep channel, mile markers along it, a lock +
+// dam pair, and a bridge with vertical clearance.
+const WTWAXS = fc([
+  line([[-80.72, 24.90], [-80.63, 24.925], [-80.52, 24.93], [-80.42, 24.975], [-80.40, 25.01]], { OBJNAM: 'Fixture Channel', catccl: 6 }),
+]);
+const DISMAR = fc(
+  [0, 1, 2, 3, 4].map(i => pt(-80.72 + i * 0.075, 24.90 + i * 0.026, { wtwdis: i * 5, OBJNAM: `Mile ${i * 5}` })),
+);
+const LOKBSN = fc([
+  poly(box(-80.415, 25.000, -80.405, 25.012), { OBJNAM: 'Fixture Lock', HORLEN: 180, HORWID: 33 }),
+]);
+const DAMCON = fc([
+  line([[-80.418, 25.012], [-80.400, 25.014]], { OBJNAM: 'Fixture Dam', CATDAM: 3 }),
+]);
+const BRIDGE = fc([
+  line([[-80.53, 24.92], [-80.51, 24.94]], { OBJNAM: 'Fixture Hwy Br', VERCLR: 16.7, CATBRG: 1 }),
+]);
+
+const layers = { DEPARE, DEPCNT, SOUNDG: SOUNDG_FC, LIGHTS, BOYLAT, WRECKS, OBSTRN, COALNE, RESARE, WTWAXS, DISMAR, LOKBSN, DAMCON, BRIDGE };
 for (const [name, json] of Object.entries(layers)) writeFileSync(join(stage, `${name}.geojson`), json);
 
 // zip in the shape enc.mjs's synthetic path expects (<LAYER>.geojson entries)

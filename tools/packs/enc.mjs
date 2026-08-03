@@ -16,17 +16,24 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 const S57_LAYERS = [
-  // layer          → pack role
-  ['DEPARE', 'depth-areas'],     // depth areas (the tinted bands)
-  ['DEPCNT', 'depth-contours'],
-  ['COALNE', 'coastline'],
-  ['SOUNDG', 'soundings'],
-  ['BOYLAT', 'buoys-lateral'],   // aids to navigation
-  ['BOYSPP', 'buoys-special'],
-  ['LIGHTS', 'lights'],
-  ['OBSTRN', 'obstructions'],
-  ['WRECKS', 'wrecks'],
-  ['RESARE', 'restricted-areas'],
+  // layer candidates (tried in order — inland cells use lowercase IENC
+  // acronyms for some classes)      → pack role
+  [['DEPARE'], 'depth-areas'],       // depth areas (the tinted bands)
+  [['DEPCNT'], 'depth-contours'],
+  [['COALNE'], 'coastline'],
+  [['SOUNDG'], 'soundings'],
+  [['BOYLAT'], 'buoys-lateral'],     // aids to navigation
+  [['BOYSPP'], 'buoys-special'],
+  [['LIGHTS'], 'lights'],
+  [['OBSTRN'], 'obstructions'],
+  [['WRECKS'], 'wrecks'],
+  [['RESARE', 'resare'], 'restricted-areas'],
+  // inland waterways (USACE IENC)
+  [['wtwaxs', 'WTWAXS'], 'sailing-line'],   // waterway axis — the recommended track
+  [['dismar', 'DISMAR'], 'mile-markers'],   // river distance marks
+  [['lokbsn', 'LOKBSN'], 'locks'],
+  [['DAMCON', 'damcon'], 'dams'],
+  [['BRIDGE', 'bridge'], 'bridges'],
 ];
 
 const need = (bin) => {
@@ -55,22 +62,27 @@ for (const cell of cells) {
   if (!existsSync(cell)) { console.error(`cell not found: ${cell}`); process.exit(2); }
   const entries = execFileSync('unzip', ['-Z1', cell], { encoding: 'utf8' }).trim().split('\n');
   const s57base = entries.find(e => e.endsWith('.000'));
-  for (const [s57, role] of S57_LAYERS) {
+  for (const [candidates, role] of S57_LAYERS) {
     const out = join(work, `${basename(cell, '.zip')}-${role}.geojson`);
-    try {
-      if (s57base) {
-        // SPLIT_MULTIPOINT + ADD_SOUNDG_DEPTH: soundings become single points
-        // with a DEPTH attribute — tippecanoe drops Z coordinates, so without
-        // this the depth values would silently vanish from the pack.
-        execFileSync('ogr2ogr', ['-f', 'GeoJSON', out, `/vsizip/${cell}/${s57base}`, s57, '-skipfailures', '-dim', 'XY'],
-          { stdio: 'pipe', env: { ...process.env, OGR_S57_OPTIONS: 'SPLIT_MULTIPOINT=ON,ADD_SOUNDG_DEPTH=ON,UPDATES=APPLY' } });
-      } else {
-        const gj = entries.find(e => e.toUpperCase() === `${s57}.GEOJSON`);
-        if (!gj) continue;
-        execFileSync('ogr2ogr', ['-f', 'GeoJSON', out, `/vsizip/${cell}/${gj}`, '-skipfailures'], { stdio: 'pipe' });
-      }
-      (layerFiles[role] ??= []).push(out);
-    } catch { /* layer absent in this cell — normal */ }
+    let got = false;
+    for (const s57 of candidates) {
+      try {
+        if (s57base) {
+          // SPLIT_MULTIPOINT + ADD_SOUNDG_DEPTH: soundings become single points
+          // with a DEPTH attribute — tippecanoe drops Z coordinates, so without
+          // this the depth values would silently vanish from the pack.
+          execFileSync('ogr2ogr', ['-f', 'GeoJSON', out, `/vsizip/${cell}/${s57base}`, s57, '-skipfailures', '-dim', 'XY'],
+            { stdio: 'pipe', env: { ...process.env, OGR_S57_OPTIONS: 'SPLIT_MULTIPOINT=ON,ADD_SOUNDG_DEPTH=ON,UPDATES=APPLY' } });
+        } else {
+          const gj = entries.find(e => e.toUpperCase() === `${s57.toUpperCase()}.GEOJSON`);
+          if (!gj) continue;
+          execFileSync('ogr2ogr', ['-f', 'GeoJSON', out, `/vsizip/${cell}/${gj}`, '-skipfailures'], { stdio: 'pipe' });
+        }
+        got = true;
+        break;
+      } catch { /* this spelling absent — try the next, or skip (normal) */ }
+    }
+    if (got) (layerFiles[role] ??= []).push(out);
   }
 }
 

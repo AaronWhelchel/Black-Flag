@@ -38,29 +38,34 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        region: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.region)) || fromJSON('["nj-manasquan","fl-keys-bimini"]') }}
+        region: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.region)) || fromJSON('["nj-manasquan","fl-keys-bimini","ky-barkley-lakes"]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y gdal-bin tippecanoe zip unzip
-      - name: Discover cells from the official NOAA ENC catalog
+      - name: Discover cells (NOAA catalog for coastal regions, USACE scheme for rivers)
         run: |
           mkdir -p build
-          curl -fsSL -o build/ENCProdCat.xml "https://charts.noaa.gov/ENCs/ENCProdCat_19115.xml"
-          ls -la build/ENCProdCat.xml
-          # no pipe: catalog.mjs exit codes (incl. exit 3 = no cells) must fail this step
-          node tools/packs/catalog.mjs build/ENCProdCat.xml "${{ matrix.region }}" > build/cells.txt
-          echo "discovered $(wc -l < build/cells.txt) cells:"; cat build/cells.txt
-      - name: Download discovered cells (NOAA, public domain)
+          if node -e "process.exit(require('./tools/packs/regions.json').regions['${{ matrix.region }}'].ienc ? 0 : 1)"; then
+            echo "BASE_URL=https://ienccloud.us/ienc/products/files/u37/ienc_s57" >> "$GITHUB_ENV"
+            node tools/packs/ienc-cells.mjs "${{ matrix.region }}" > build/cells.txt
+          else
+            echo "BASE_URL=https://charts.noaa.gov/ENCs" >> "$GITHUB_ENV"
+            curl -fsSL -o build/ENCProdCat.xml "https://charts.noaa.gov/ENCs/ENCProdCat_19115.xml"
+            # no pipe: catalog.mjs exit codes (incl. exit 3 = no cells) must fail this step
+            node tools/packs/catalog.mjs build/ENCProdCat.xml "${{ matrix.region }}" > build/cells.txt
+          fi
+          echo "discovered $(wc -l < build/cells.txt) candidate cells:"; cat build/cells.txt
+      - name: Download cells (NOAA / USACE, public domain)
         run: |
           mkdir -p build/cells
           ok=0
           while read -r cell; do
-            echo "fetching $cell"
-            if curl -fsSL -o "build/cells/$cell.zip" "https://charts.noaa.gov/ENCs/$cell.zip"; then
+            echo "fetching $cell from $BASE_URL"
+            if curl -fsSL -o "build/cells/$cell.zip" "$BASE_URL/$cell.zip"; then
               ok=$((ok+1))
             else
-              echo "::warning::cell $cell listed in catalog but download failed — skipped (reported, not hidden)"
+              echo "::warning::cell $cell unavailable — skipped (reported, not hidden; IENC ranges probe past a river's last cell by design)"
               rm -f "build/cells/$cell.zip"
             fi
           done < build/cells.txt
