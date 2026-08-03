@@ -12,7 +12,7 @@
  * public domain, redistribution permitted with attribution (Register SRC-01).
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 const S57_LAYERS = [
@@ -91,12 +91,23 @@ const manifest = { pack: 'enc', region, built_at: new Date().toISOString(), laye
   source: 'NOAA ENC (S-57)', license: 'public-domain/noaa', note: 'attribution shown on chart surfaces; not for navigation positioning',
 } };
 for (const [role, files] of Object.entries(layerFiles)) {
+  // A cell can declare a layer yet contain zero features of it — tippecanoe
+  // errors on empty input. Empty-everywhere roles are skipped with a note;
+  // a tippecanoe failure on NON-empty input still quarantines (Register R4).
+  const nonEmpty = files.filter(f => {
+    try { return (JSON.parse(readFileSync(f, 'utf8')).features ?? []).length > 0; }
+    catch { return false; }
+  });
+  if (nonEmpty.length === 0) {
+    console.warn(`role ${role}: present but empty in all cells — skipped (reported, not hidden)`);
+    continue;
+  }
   const out = join(work, `${region}-${role}.pmtiles`);
   // Fixed zoom range, never -zg: depth areas feed depth-aware ROUTING, so tile
   // quantization must be predictable (~10 m at z12), not a function of how
   // much data a region happens to contain. -zg once gave a sparse fixture
   // maxzoom 3 ≈ 0.7 nm quantization — unacceptable for a safety surface.
-  execFileSync('tippecanoe', ['-o', out, '--force', '-Z6', '-z12', '--drop-densest-as-needed', '-l', role, ...files], { stdio: 'pipe' });
+  execFileSync('tippecanoe', ['-o', out, '--force', '-Z6', '-z12', '--drop-densest-as-needed', '-l', role, ...nonEmpty], { stdio: 'pipe' });
   manifest.layers[role] = basename(out);
 }
 

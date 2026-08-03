@@ -72,7 +72,11 @@ jobs:
           if [ "$ok" -eq 0 ]; then echo "::error::no cells downloaded — quarantining build (Register R4)"; exit 1; fi
           ls -la build/cells/
       - name: Build pack
-        run: node tools/packs/enc.mjs "${{ matrix.region }}" build/cells/*.zip
+        # redirect (not pipe) so the exit code is preserved; log is published
+        # to ci-log/<region> on failure
+        run: |
+          node tools/packs/enc.mjs "${{ matrix.region }}" build/cells/*.zip > build/build.log 2>&1 || { cat build/build.log; exit 1; }
+          cat build/build.log
       - name: Checksum (Register R4 — verify before publish)
         run: |
           cd build/enc/${{ matrix.region }}
@@ -84,6 +88,21 @@ jobs:
           name: enc-pack-${{ matrix.region }}
           path: build/enc/${{ matrix.region }}
           retention-days: 30
+      - name: Publish failure diagnostics to ci-log/<region> branch
+        # The Cowork sandbox can reach git but not the Actions API — on
+        # failure, push what the build saw so failures are debuggable via git.
+        if: failure()
+        run: |
+          mkdir -p /tmp/cilog && cd /tmp/cilog
+          echo "run ${{ github.run_id }} (${{ github.sha }}) failed $(date -u +%FT%TZ)" > info.txt
+          cp "$GITHUB_WORKSPACE/build/cells.txt" . 2>/dev/null || echo "no cells.txt" >> info.txt
+          ls -la "$GITHUB_WORKSPACE/build/cells/" > cells-dir.txt 2>&1 || true
+          ls -la "$GITHUB_WORKSPACE/build/enc/${{ matrix.region }}/" > enc-dir.txt 2>&1 || true
+          cp "$GITHUB_WORKSPACE/build/build.log" . 2>/dev/null || true
+          git init -q -b "ci-log/${{ matrix.region }}"
+          git -c user.name=ci -c user.email=actions@github.com add -A
+          git -c user.name=ci -c user.email=actions@github.com commit -qm "failure log"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/ci-log/${{ matrix.region }}"
       - name: Publish pack to pack/<region> branch (git-accessible distribution)
         # Interim distribution until the CDN lands: each region's pack lives on
         # its own orphan branch, force-pushed whole. Checksums were written in

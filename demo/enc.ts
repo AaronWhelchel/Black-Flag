@@ -16,6 +16,8 @@ import { PbfReader } from 'pbf';
 export const ENC_ROLES = [
   'depth-areas', 'depth-contours', 'coastline', 'soundings',
   'buoys-lateral', 'buoys-special', 'lights', 'obstructions', 'wrecks', 'restricted-areas',
+  // inland (USACE IENC)
+  'sailing-line', 'mile-markers', 'locks', 'dams', 'bridges',
 ] as const;
 export type EncRole = (typeof ENC_ROLES)[number];
 
@@ -48,7 +50,7 @@ export class EncPack {
   private tiles = new Map<string, EncFeature[] | 'loading'>();
 
   static parseRole(name: string): EncRole | null {
-    const m = name.match(/-(depth-areas|depth-contours|coastline|soundings|buoys-lateral|buoys-special|lights|obstructions|wrecks|restricted-areas)\.pmtiles$/);
+    const m = name.match(/-(depth-areas|depth-contours|coastline|soundings|buoys-lateral|buoys-special|lights|obstructions|wrecks|restricted-areas|sailing-line|mile-markers|locks|dams|bridges)\.pmtiles$/);
     return (m ? (m[1] as EncRole) : null);
   }
 
@@ -242,6 +244,91 @@ export function drawEnc(pack: EncPack, ctx: CanvasRenderingContext2D, project: P
     }
   }
 
+  // sailing line — the charted recommended track (inland rivers). Drawn
+  // prominently: this IS the route guidance a captain follows downriver.
+  {
+    const { feats, complete: c } = pack.collect('sailing-line', bb, zoom);
+    complete &&= c;
+    if (feats.length) {
+      ctx.strokeStyle = satDrawn ? 'rgba(80,220,255,0.9)' : 'rgba(30,150,220,0.9)';
+      ctx.lineWidth = 2.2;
+      ctx.setLineDash([12, 6]);
+      for (const f of feats) eachLine(f.geom, (l) => { path(l); ctx.stroke(); });
+      ctx.setLineDash([]);
+    }
+  }
+
+  // dams — heavy dark bars (a dam across your course is a hard stop)
+  {
+    const { feats, complete: c } = pack.collect('dams', bb, zoom);
+    complete &&= c;
+    ctx.strokeStyle = '#3a3f47'; ctx.lineWidth = 5; ctx.lineCap = 'butt';
+    for (const f of feats) {
+      eachLine(f.geom, (l) => { path(l); ctx.stroke(); });
+      eachRing(f.geom, (r) => { path(r); ctx.closePath(); ctx.stroke(); });
+    }
+    ctx.lineWidth = 1;
+  }
+
+  // locks — chambers drawn as outlined boxes with the gate symbol
+  if (zoom >= 8) {
+    const { feats, complete: c } = pack.collect('locks', bb, zoom);
+    complete &&= c;
+    for (const f of feats) {
+      eachRing(f.geom, (ring) => {
+        path(ring); ctx.closePath();
+        ctx.fillStyle = 'rgba(60,120,200,0.25)'; ctx.fill();
+        ctx.strokeStyle = '#2f6db8'; ctx.lineWidth = 2; ctx.stroke();
+      });
+      // label at centroid
+      let cx = 0, cy = 0, n = 0;
+      eachRing(f.geom, (ring) => { for (const p of ring) { const [x, y] = project(p[0], p[1]); cx += x; cy += y; n++; } });
+      if (n && zoom >= 9) {
+        ctx.fillStyle = satDrawn ? '#bfe0ff' : '#2f6db8';
+        ctx.font = 'bold 10px -apple-system, sans-serif';
+        ctx.fillText(`⚙ ${f.props.OBJNAM ?? 'Lock'}`, cx / n + 8, cy / n);
+      }
+    }
+  }
+
+  // bridges — line + vertical clearance label (VERCLR, meters → feet)
+  if (zoom >= 9) {
+    const { feats, complete: c } = pack.collect('bridges', bb, zoom);
+    complete &&= c;
+    ctx.strokeStyle = satDrawn ? '#e8e8e8' : '#6a7480'; ctx.lineWidth = 3;
+    for (const f of feats) {
+      eachLine(f.geom, (l) => {
+        path(l); ctx.stroke();
+        const vc = Number(f.props.VERCLR);
+        if (Number.isFinite(vc) && l.length) {
+          const mid = l[Math.floor(l.length / 2)];
+          const [x, y] = project(mid[0], mid[1]);
+          ctx.fillStyle = satDrawn ? '#ffe9a8' : '#8a6d1d';
+          ctx.font = 'bold 10px -apple-system, sans-serif';
+          ctx.fillText(`br clr ${Math.round(vc * M2FT)} ft`, x + 6, y - 6);
+        }
+      });
+      eachRing(f.geom, (r) => { path(r); ctx.closePath(); ctx.stroke(); });
+    }
+    ctx.lineWidth = 1;
+  }
+
+  // mile markers — small river-mile ticks
+  if (zoom >= 9.5) {
+    const { feats, complete: c } = pack.collect('mile-markers', bb, zoom);
+    complete &&= c;
+    ctx.font = '9.5px -apple-system, sans-serif';
+    for (const f of feats) {
+      const mi = f.props.wtwdis ?? f.props.WTWDIS;
+      eachPoint(f.geom, (lon, lat) => {
+        const [x, y] = project(lon, lat);
+        ctx.fillStyle = satDrawn ? 'rgba(255,255,255,0.75)' : 'rgba(90,110,130,0.9)';
+        ctx.beginPath(); ctx.arc(x, y, 1.8, 0, Math.PI * 2); ctx.fill();
+        if (mi !== undefined && zoom >= 10.5) ctx.fillText(`mi ${mi}`, x + 5, y + 3);
+      });
+    }
+  }
+
   // point symbols
   if (zoom >= 8.5) {
     const sym = (role: EncRole, draw: (x: number, y: number, p: Record<string, any>) => void) => {
@@ -296,30 +383,42 @@ export interface DepthGate {
   shallowRings: number[][][];
   /** charted wrecks/obstructions shoaler than the vessel needs */
   shallowPoints: { lat: number; lon: number; radius_nm: number }[];
-  neededM: number;
+  /** charted dams — hard barriers regardless of draft (lockages are a
+   *  planned-stop feature, not a thing to route blindly through) */
+  barrierLines: number[][][];
+  neededM: number | null;
   coverage: boolean;
 }
 
-/** Collect everything shoaler than `neededM` over the route area. DRVAL1 is
- *  the band's guaranteed minimum — if it's less than the vessel needs, some
- *  spot in that band may ground her, so the whole band is out (conservative,
- *  same call a paper-chart safety contour makes). */
-export async function buildDepthGate(pack: EncPack, bb: BBox, neededM: number): Promise<DepthGate> {
-  const gate: DepthGate = { shallowRings: [], shallowPoints: [], neededM, coverage: pack.covers(bb) };
+/** Collect everything the route must not cross over the route area.
+ *  Depth: DRVAL1 is the band's guaranteed minimum — if it's less than the
+ *  vessel needs (draft + safety ± water-level offset), some spot in that band
+ *  may ground her, so the whole band is out (the paper-chart safety-contour
+ *  call). Dams: barriers even with no draft set.
+ *  `offsetM` = current water level relative to the charted datum (from a
+ *  gauge or the captain), positive = more water than charted. */
+export async function buildDepthGate(pack: EncPack, bb: BBox, neededM: number | null, offsetM = 0): Promise<DepthGate> {
+  const gate: DepthGate = { shallowRings: [], shallowPoints: [], barrierLines: [], neededM, coverage: pack.covers(bb) };
   if (!gate.coverage) return gate;
   const zHint = 12;
-  const depare = await pack.ensure('depth-areas', bb, zHint);
-  for (const f of depare) {
-    if (!(Number(f.props.DRVAL1) < neededM)) continue;
-    eachRing(f.geom, (ring) => gate.shallowRings.push(ring));
-  }
-  for (const role of ['wrecks', 'obstructions'] as EncRole[]) {
-    for (const f of await pack.ensure(role, bb, zHint)) {
-      const sou = Number(f.props.VALSOU);
-      const dangerous = Number(f.props.CATWRK) === 2 || (Number.isFinite(sou) && sou < neededM);
-      if (!dangerous) continue;
-      eachPoint(f.geom, (lon, lat) => gate.shallowPoints.push({ lat, lon, radius_nm: 0.05 }));
+  if (neededM !== null) {
+    const depare = await pack.ensure('depth-areas', bb, zHint);
+    for (const f of depare) {
+      if (!(Number(f.props.DRVAL1) + offsetM < neededM)) continue;
+      eachRing(f.geom, (ring) => gate.shallowRings.push(ring));
     }
+    for (const role of ['wrecks', 'obstructions'] as EncRole[]) {
+      for (const f of await pack.ensure(role, bb, zHint)) {
+        const sou = Number(f.props.VALSOU);
+        const dangerous = Number(f.props.CATWRK) === 2 || (Number.isFinite(sou) && sou + offsetM < neededM);
+        if (!dangerous) continue;
+        eachPoint(f.geom, (lon, lat) => gate.shallowPoints.push({ lat, lon, radius_nm: 0.05 }));
+      }
+    }
+  }
+  for (const f of await pack.ensure('dams', bb, zHint)) {
+    eachLine(f.geom, (l) => gate.barrierLines.push(l));
+    eachRing(f.geom, (r) => gate.barrierLines.push(r));
   }
   return gate;
 }

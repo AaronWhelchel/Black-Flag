@@ -249,7 +249,11 @@
           <div class="card" id="enc-card">
             <h3 style="display:flex;justify-content:space-between;align-items:center">Chart pack (ENC depths)
               <label class="btn" style="cursor:pointer">Load files<input type="file" id="enc-files" multiple accept=".pmtiles,.json" style="display:none"></label></h3>
-            <div id="enc-status" class="sub">No pack loaded. Load a region's <b>.pmtiles</b> files (+ manifest.json) from a Black Flag chart-pack build — NOAA ENC depth areas, soundings, and aids render on the chart, and Auto-route starts honoring your vessel's draft. Packs stay on this device and work offline.</div>
+            <div id="enc-status" class="sub">No pack loaded. Load a region's <b>.pmtiles</b> files (+ manifest.json) from a Black Flag chart-pack build — NOAA/USACE depth areas, soundings, aids, sailing lines, and locks render on the chart, and Auto-route starts honoring your vessel's draft. Packs stay on this device and work offline.</div>
+            <div class="sub" style="margin-top:8px">
+              <label>Water level vs charted datum: <input type="number" id="enc-offset" step="0.5" value="0" style="width:64px"> ft</label>
+              <span style="font-size:11px">— inland charts assume a reference pool; if the gauge says the water is above/below it, depth-aware routing honors the difference.</span>
+            </div>
           </div>
           <div id="panel-trip">
             <div class="card">

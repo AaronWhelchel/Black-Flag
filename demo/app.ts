@@ -18,7 +18,7 @@ import type { HazardMark } from '../packages/core/src/route.js';
 import { SyncEngine } from '../packages/sync/src/index.js';
 import { makeStore, DeviceStore, savePackFiles, loadPackFiles } from './store.js';
 import { EncPack, buildDepthGate, DepthGate } from './enc.js';
-import { fetchTripWx, fetchTripTides, TripWx, TripTides } from './tripdata.js';
+import { fetchTripWx, fetchTripTides, fetchWaterLevel, TripWx, TripTides, WaterLevel } from './tripdata.js';
 // @ts-ignore — JSON bundled by esbuild
 import hydroPack from './packs/hydro-east-na.json';
 // @ts-ignore — JSON bundled by esbuild
@@ -382,6 +382,7 @@ for (const id of ['in-crew', 'in-fuel', 'in-food', 'in-fish']) $(id).addEventLis
 // ---- Trip data auto-fetch: plan a trip, get its NOAA data ----
 let tripWx: TripWx | null = null;
 let tripTides: TripTides | null = null;
+let tripWater: WaterLevel | null = null;
 let wxTimer: any = null;
 let wxSeq = 0;
 
@@ -396,6 +397,7 @@ function renderTripWxCard(status?: string, waveNote?: string) {
     <div style="margin-top:4px;color:var(--ink)">${esc(tripWx.summary)}</div>
     <div class="sub" style="margin-top:6px">${esc(tripWx.detailed).slice(0, 220)}</div>
     ${tripTides ? `<div style="margin-top:8px;font-size:13px;color:var(--ink)">Tides — ${esc(tripTides.name)}: ${tripTides.events.map(e => `${e.type} ${e.t}`).join(' · ')}</div>` : `<div class="sub" style="margin-top:8px">No tide station within 60 nm of this route — inland water, no tidal planning needed.</div>`}
+    ${tripWater ? `<div style="margin-top:6px;font-size:13px;color:var(--ink)">Water level — ${esc(tripWater.name)}${tripWater.stage_ft !== null ? `: stage <b>${tripWater.stage_ft} ft</b>` : ''}${tripWater.lake_ft !== null ? ` · pool el. <b>${tripWater.lake_ft} ft</b>` : ''} <span class="sub">(${esc(tripWater.at.slice(11, 16))}, ${tripWater.dist_nm} nm away)</span></div><div class="sub" style="font-size:11px">Gauge readings use the local gauge datum, not the chart's — if you know the offset from normal pool, set it in the Chart pack card and depth-aware routing uses it.</div>` : ''}
     <div class="sub" style="margin-top:8px;font-size:11px">${esc(tripWx.provenance)}${tripTides ? ' · ' + esc(tripTides.provenance) : ''} · fetched just now — feeding fuel, risk, and budget below</div>`;
 }
 
@@ -409,6 +411,7 @@ async function refreshTripData() {
     if (seq !== wxSeq) return;               // a newer route superseded this fetch
     tripWx = wx;
     tripTides = await fetchTripTides(chart.st.waypoints).catch(() => null);
+    tripWater = await fetchWaterLevel(chart.st.waypoints).catch(() => null);
     if (seq !== wxSeq) return;
     // The real forecast now drives the intelligence core — no more demo weather.
     tripState.forecast = {
@@ -433,6 +436,7 @@ async function refreshTripData() {
       ...tripState.data_vintage,
       weather: `${wx.provenance}${waveNote ? ' · chop: fetch-limited physics estimate' : ''} · fetched ${wx.fetched_at.slice(11, 16)}Z`,
       ...(tripTides ? { tides: tripTides.provenance } : {}),
+      ...(tripWater ? { water_level: `${tripWater.provenance} @ ${tripWater.at.slice(11, 16)}` } : {}),
     };
     renderTripWxCard(undefined, waveNote);
     $('tide-line').textContent = tripTides
@@ -441,7 +445,7 @@ async function refreshTripData() {
     renderTrip();
   } catch (e) {
     if (seq !== wxSeq) return;
-    tripWx = null; tripTides = null;
+    tripWx = null; tripTides = null; tripWater = null;
     renderTripWxCard(String((e as Error).message) === 'offline'
       ? 'Can\u2019t reach forecast services right now (connection or firewall). Trip numbers below use the manual/demo conditions \u2014 honestly labeled in the Why panel.'
       : 'This route is outside NWS coverage and no model fallback answered for it. Trip numbers below use the manual/demo conditions \u2014 honestly labeled in the Why panel.');
@@ -493,9 +497,10 @@ $('auto-route').addEventListener('click', () => {
       const padD = span * maskPadF;
       const bb = { minLat: minLat - padD, maxLat: maxLat + padD, minLon: minLon - padD, maxLon: maxLon + padD };
       let gate: DepthGate | null = null;
-      if (chart.enc && neededFt) {
-        gate = await buildDepthGate(chart.enc, bb, neededFt * 0.3048);
-        gated = gate.coverage;
+      if (chart.enc) {
+        const offsetM = (+(($('enc-offset') as HTMLInputElement)?.value ?? 0) || 0) * 0.3048;
+        gate = await buildDepthGate(chart.enc, bb, neededFt ? neededFt * 0.3048 : null, offsetM);
+        gated = gate.coverage && neededFt !== null;
       }
       const mask = chart.buildWaterMask(bb, maskPx, cachedWaterRings(), hazards, gate);
       const out: typeof wps = [wps[0]];

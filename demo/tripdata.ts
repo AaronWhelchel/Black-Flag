@@ -171,6 +171,61 @@ async function fetchOpenMeteo(mid: { lat: number; lon: number }): Promise<TripWx
   };
 }
 
+// ================= USGS water levels (rivers & reservoirs) =================
+
+export interface WaterLevel {
+  site: string;
+  name: string;
+  dist_nm: number;
+  stage_ft: number | null;     // 00065 gauge height (local gauge datum)
+  lake_ft: number | null;      // 62614/62615 lake/reservoir elevation
+  at: string;
+  provenance: string;
+}
+
+/** Nearest active USGS gauge to the route (≤ maxDistNm): current stage and/or
+ *  lake elevation. Rivers and reservoirs move — charted inland depths assume
+ *  a reference pool, so the live level is the missing half of every depth
+ *  number. Datum honesty: gauge stage is relative to the LOCAL GAUGE datum,
+ *  not the chart's — Black Flag reports it and lets the captain apply the
+ *  relationship, it never silently pretends they're the same. */
+export async function fetchWaterLevel(wps: RouteWaypoint[], maxDistNm = 25): Promise<WaterLevel | null> {
+  const mid = routeMidpoint(wps);
+  const d = 0.5;
+  const bb = [mid.lon - d, mid.lat - d, mid.lon + d, mid.lat + d].map(v => v.toFixed(4)).join(',');
+  const js = await get(`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${bb}&parameterCd=00065,62614,62615&siteStatus=active`);
+  const series: any[] = js?.value?.timeSeries ?? [];
+  if (!series.length) return null;
+
+  const bySite = new Map<string, WaterLevel & { lat: number; lon: number }>();
+  for (const ts of series) {
+    const info = ts?.sourceInfo;
+    const code = ts?.variable?.variableCode?.[0]?.value;
+    const vals = ts?.values?.[0]?.value ?? [];
+    const last = vals[vals.length - 1];
+    const v = Number(last?.value);
+    if (!info || !Number.isFinite(v) || v <= -999) continue;   // -999999 = sensor down, said honestly by omission
+    const id = info.siteCode?.[0]?.value ?? info.siteName;
+    const lat = Number(info.geoLocation?.geogLocation?.latitude);
+    const lon = Number(info.geoLocation?.geogLocation?.longitude);
+    const cur = bySite.get(id) ?? {
+      site: id, name: String(info.siteName ?? id), lat, lon,
+      dist_nm: Math.round(haversineNm(mid, { lat, lon }) * 10) / 10,
+      stage_ft: null, lake_ft: null, at: String(last?.dateTime ?? ''),
+      provenance: `USGS ${id} instantaneous values`,
+    };
+    if (code === '00065') cur.stage_ft = Math.round(v * 10) / 10;
+    else cur.lake_ft = Math.round(v * 10) / 10;
+    if (last?.dateTime) cur.at = String(last.dateTime);
+    bySite.set(id, cur);
+  }
+  let best: (WaterLevel & { lat: number; lon: number }) | null = null;
+  for (const s of bySite.values()) if (!best || s.dist_nm < best.dist_nm) best = s;
+  if (!best || best.dist_nm > maxDistNm) return null;
+  const { lat: _a, lon: _b, ...out } = best;
+  return out;
+}
+
 let stationCache: { id: string; name: string; lat: number; lon: number }[] | null = null;
 
 export async function fetchTripTides(wps: RouteWaypoint[], maxDistNm = 60): Promise<TripTides | null> {

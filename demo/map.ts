@@ -290,6 +290,20 @@ export class Chart {
         g.stroke();
       }
     }
+    // …minus charted dams — hard barriers, drawn as thick blocked strokes…
+    if (depthGate?.barrierLines.length) {
+      g.strokeStyle = '#000';
+      g.lineWidth = Math.max(3, (0.1 / nmPerLon / spanLon) * W);
+      g.lineCap = 'round';
+      for (const l of depthGate.barrierLines) {
+        g.beginPath();
+        for (let k = 0; k < l.length; k++) {
+          const x = px(l[k][0]), y = py(l[k][1]);
+          k ? g.lineTo(x, y) : g.moveTo(x, y);
+        }
+        g.stroke();
+      }
+    }
     // …minus hazard clearance discs (captain's marks + charted wrecks/obstructions).
     const allBlocked = depthGate?.shallowPoints.length ? [...blocked, ...depthGate.shallowPoints] : blocked;
     g.fillStyle = '#000';
