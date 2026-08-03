@@ -59,7 +59,11 @@ for (const cell of cells) {
     const out = join(work, `${basename(cell, '.zip')}-${role}.geojson`);
     try {
       if (s57base) {
-        execFileSync('ogr2ogr', ['-f', 'GeoJSON', out, `/vsizip/${cell}/${s57base}`, s57, '-skipfailures'], { stdio: 'pipe' });
+        // SPLIT_MULTIPOINT + ADD_SOUNDG_DEPTH: soundings become single points
+        // with a DEPTH attribute — tippecanoe drops Z coordinates, so without
+        // this the depth values would silently vanish from the pack.
+        execFileSync('ogr2ogr', ['-f', 'GeoJSON', out, `/vsizip/${cell}/${s57base}`, s57, '-skipfailures', '-dim', 'XY'],
+          { stdio: 'pipe', env: { ...process.env, OGR_S57_OPTIONS: 'SPLIT_MULTIPOINT=ON,ADD_SOUNDG_DEPTH=ON,UPDATES=APPLY' } });
       } else {
         const gj = entries.find(e => e.toUpperCase() === `${s57}.GEOJSON`);
         if (!gj) continue;

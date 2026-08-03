@@ -7,10 +7,18 @@ on:
         description: "Region key from tools/packs/regions.json"
         required: true
         default: nj-manasquan
+  push:
+    branches: [main]
+    paths:
+      - "tools/packs/**"
+      - ".github/workflows/pack-build.yml"
   schedule:
     # Weekly — matches NOAA ENC re-issue cadence and the Register SRC-01 SLO
     # (pack rebuilt ≤ 7 days after NOAA update).
     - cron: "0 6 * * 1"
+
+permissions:
+  contents: write   # publish step pushes built packs to pack/<region> branches
 
 jobs:
   selftest:
@@ -71,6 +79,15 @@ jobs:
           name: enc-pack-${{ matrix.region }}
           path: build/enc/${{ matrix.region }}
           retention-days: 30
-      # Publish step (object storage + CDN) lands with production credentials:
-      # a failed checksum or schema gate quarantines — nothing publishes on a
-      # warning (Register R4).
+      - name: Publish pack to pack/<region> branch (git-accessible distribution)
+        # Interim distribution until the CDN lands: each region's pack lives on
+        # its own orphan branch, force-pushed whole. Checksums were written in
+        # the step above — a failed build never reaches here (Register R4).
+        run: |
+          cd build/enc/${{ matrix.region }}
+          rm -f *.geojson
+          git init -q -b "pack/${{ matrix.region }}"
+          git -c user.name="pack-bot" -c user.email="actions@github.com" add -A
+          git -c user.name="pack-bot" -c user.email="actions@github.com" commit -q -m "ENC pack ${{ matrix.region }} $(date -u +%FT%TZ)"
+          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/pack/${{ matrix.region }}"
+          echo "published refs/heads/pack/${{ matrix.region }}"
