@@ -9,6 +9,7 @@ import * as topojson from 'topojson-client';
 import landTopo from 'world-atlas/land-50m.json';
 import { RouteWaypoint, haversineNm, initialCourseDeg } from '../packages/core/src/index.js';
 import { PIRACY_REGIONS } from '../packages/core/src/risk.js';
+import { EncPack, DepthGate, drawEnc } from './enc.js';
 
 const land: any = topojson.feature(landTopo as any, (landTopo as any).objects.land);
 
@@ -79,6 +80,8 @@ export class Chart {
   private tiles = new Map<string, HTMLImageElement | 'loading' | 'failed'>();
   private tileFailures = 0;
   satelliteAvailable = true;   // flips false after repeated failures → honest fallback
+  /** loaded ENC chart pack (depth areas, soundings, aids) — null until the captain loads one */
+  enc: EncPack | null = null;
 
   constructor(public canvas: HTMLCanvasElement, st: MapState) {
     this.ctx = canvas.getContext('2d')!;
@@ -228,6 +231,7 @@ export class Chart {
     maskPx: number,
     extraWater: number[][][],
     blocked: { lat: number; lon: number; radius_nm: number }[],
+    depthGate?: DepthGate | null,
   ): { isWater: (lat: number, lon: number) => boolean } {
     const spanLon = bb.maxLon - bb.minLon, spanLat = bb.maxLat - bb.minLat;
     const aspect = spanLon / spanLat;
@@ -264,11 +268,32 @@ export class Chart {
     drawRings(this.hydroLakes.filter(l => touches(l.bb)).map(l => l.ring), '#fff');
     drawRings(this.hydroRivers.filter(r => touches(r.bb)).map(r => r.ring), '#fff');
     if (extraWater.length) drawRings(extraWater, '#fff');
-    // …minus hazard clearance discs.
     const latMid = (bb.minLat + bb.maxLat) / 2;
     const nmPerLon = 60 * Math.cos((latMid * Math.PI) / 180);
+    // …minus charted water too shallow for this vessel (ENC DRVAL1 gate).
+    // Shoals get a ~0.15 nm berth: grid routing can hug a blocked boundary by
+    // half a cell, and a route should never shave a charted shallow that close.
+    if (depthGate?.shallowRings.length) {
+      drawRings(depthGate.shallowRings, '#000');
+      g.strokeStyle = '#000';
+      g.lineWidth = Math.max(2, (0.3 / nmPerLon / spanLon) * W);   // 2×0.15 nm total
+      g.lineJoin = 'round';
+      for (let i = 0; i < depthGate.shallowRings.length; i += 300) {
+        g.beginPath();
+        for (const ring of depthGate.shallowRings.slice(i, i + 300)) {
+          for (let k = 0; k < ring.length; k++) {
+            const x = px(ring[k][0]), y = py(ring[k][1]);
+            k ? g.lineTo(x, y) : g.moveTo(x, y);
+          }
+          g.closePath();
+        }
+        g.stroke();
+      }
+    }
+    // …minus hazard clearance discs (captain's marks + charted wrecks/obstructions).
+    const allBlocked = depthGate?.shallowPoints.length ? [...blocked, ...depthGate.shallowPoints] : blocked;
     g.fillStyle = '#000';
-    for (const b of blocked) {
+    for (const b of allBlocked) {
       const rx = (b.radius_nm / nmPerLon / spanLon) * W;
       const ry = (b.radius_nm / 60 / spanLat) * H;
       g.beginPath();
@@ -400,6 +425,12 @@ export class Chart {
       }
     }
 
+    // ENC chart pack — depth tints, contours, soundings, aids, hazards
+    if (this.enc) {
+      const bb = { minLat: br.lat, maxLat: tl.lat, minLon: tl.lon, maxLon: br.lon };
+      if (this.enc.covers(bb)) drawEnc(this.enc, ctx, (lon, lat) => this.project(lon, lat), bb, st.zoom, satDrawn);
+    }
+
     const ink = satDrawn ? '#ffffff' : (light ? '#1a2733' : '#e8ecf1');
     const halo = satDrawn ? 'rgba(0,0,0,0.75)' : (light ? 'rgba(255,255,255,0.85)' : 'rgba(10,16,24,0.8)');
     const label = (text: string, x: number, y: number, color = ink, font = '11px -apple-system, sans-serif') => {
@@ -497,10 +528,11 @@ export class Chart {
     ctx.strokeStyle = ink; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(14, H - 18); ctx.lineTo(14 + barPx, H - 18); ctx.stroke();
     label(`${targetNm} nm`, 14, H - 24);
+    const encLine = this.enc ? ` · ENC: ${this.enc.provenance}` : '';
     label(
       satDrawn
-        ? 'Imagery © Esri, Maxar, Earthstar Geographics · Not for navigation'
-        : `${st.mode === 'satellite' ? 'Satellite unavailable offline — vector chart shown · ' : ''}Coastline: Natural Earth · Not for navigation`,
+        ? `Imagery © Esri, Maxar, Earthstar Geographics${encLine} · Not for navigation`
+        : `${st.mode === 'satellite' ? 'Satellite unavailable offline — vector chart shown · ' : ''}Coastline: Natural Earth${encLine} · Not for navigation`,
       14, H - 7, satDrawn ? '#d8dee6' : (light ? '#5a6b7a' : '#7a8694'), '9px -apple-system, sans-serif',
     );
   }

@@ -80,13 +80,11 @@ const manifest = { pack: 'enc', region, built_at: new Date().toISOString(), laye
 } };
 for (const [role, files] of Object.entries(layerFiles)) {
   const out = join(work, `${region}-${role}.pmtiles`);
-  try {
-    execFileSync('tippecanoe', ['-o', out, '-zg', '--drop-densest-as-needed', '-l', role, ...files], { stdio: 'pipe' });
-  } catch {
-    // Sparse layers (a lone light, one wreck) defeat -zg's guess — retry with
-    // an explicit zoom range rather than dropping the layer.
-    execFileSync('tippecanoe', ['-o', out, '--force', '-Z6', '-z12', '-l', role, ...files], { stdio: 'pipe' });
-  }
+  // Fixed zoom range, never -zg: depth areas feed depth-aware ROUTING, so tile
+  // quantization must be predictable (~10 m at z12), not a function of how
+  // much data a region happens to contain. -zg once gave a sparse fixture
+  // maxzoom 3 ≈ 0.7 nm quantization — unacceptable for a safety surface.
+  execFileSync('tippecanoe', ['-o', out, '--force', '-Z6', '-z12', '--drop-densest-as-needed', '-l', role, ...files], { stdio: 'pipe' });
   manifest.layers[role] = basename(out);
 }
 

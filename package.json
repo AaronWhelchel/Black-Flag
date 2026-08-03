@@ -14,9 +14,12 @@
     "demo": "node demo/build.mjs"
   },
   "devDependencies": {
+    "@mapbox/vector-tile": "^3.0.0",
     "@types/node": "^26.1.2",
     "@types/topojson-client": "^3.1.5",
     "esbuild": "^0.24.0",
+    "pbf": "^5.1.2",
+    "pmtiles": "^4.4.1",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   },

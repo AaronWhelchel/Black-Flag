@@ -246,6 +246,11 @@
               <button class="btn" id="wx-refresh">refresh</button></h3>
             <div id="trip-wx-body" class="sub">Plot a route and Black Flag pulls the NOAA forecast and tides for it automatically.</div>
           </div>
+          <div class="card" id="enc-card">
+            <h3 style="display:flex;justify-content:space-between;align-items:center">Chart pack (ENC depths)
+              <label class="btn" style="cursor:pointer">Load files<input type="file" id="enc-files" multiple accept=".pmtiles,.json" style="display:none"></label></h3>
+            <div id="enc-status" class="sub">No pack loaded. Load a region's <b>.pmtiles</b> files (+ manifest.json) from a Black Flag chart-pack build — NOAA ENC depth areas, soundings, and aids render on the chart, and Auto-route starts honoring your vessel's draft. Packs stay on this device and work offline.</div>
+          </div>
           <div id="panel-trip">
             <div class="card">
               <h3>Boat speeds · <span class="sub" id="trip-vessel-name"></span></h3>
@@ -343,6 +348,7 @@
                 <option value="pwc">PWC</option>
               </select></label>
               <label>Length overall (ft) <input type="number" id="v-loa" min="8" max="120" step="0.1"></label>
+              <label>Draft (ft) <input type="number" id="v-draft" min="0.5" max="20" step="0.1" title="Deepest point of hull/drive below the waterline — used by depth-aware routing"></label>
               <label>Max comfortable seas (ft) <input type="number" id="v-seas" min="1" max="15" step="0.5"></label>
               <label>Usable fuel (gal) <input type="number" id="v-fuel" min="1" step="1"></label>
               <label>Reserve (%) <input type="number" id="v-reserve" min="0" max="50" step="5"></label>

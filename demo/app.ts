@@ -16,7 +16,8 @@ import { routeConflicts, suggestDetour, HAZARD_CLEARANCE_NM, extraDistanceNm } f
 import { autoRoute, estimateFetchLimitedWaves } from '../packages/core/src/index.js';
 import type { HazardMark } from '../packages/core/src/route.js';
 import { SyncEngine } from '../packages/sync/src/index.js';
-import { makeStore, DeviceStore } from './store.js';
+import { makeStore, DeviceStore, savePackFiles, loadPackFiles } from './store.js';
+import { EncPack, buildDepthGate, DepthGate } from './enc.js';
 import { fetchTripWx, fetchTripTides, TripWx, TripTides } from './tripdata.js';
 // @ts-ignore — JSON bundled by esbuild
 import hydroPack from './packs/hydro-east-na.json';
@@ -140,8 +141,8 @@ function persistSoon() {
 // ================= Vessels (captain-managed) =================
 
 const BUILTIN_VESSELS: Record<string, { v: TripVessel; cruise: number }> = {
-  'builtin-restless': { v: { ...restless31, type: 'cruiser', loa_ft: 31, max_recommended_seas_ft: 5 }, cruise: 17 },
-  'builtin-t16': { v: tahoeT16, cruise: 22 },
+  'builtin-restless': { v: { ...restless31, type: 'cruiser', loa_ft: 31, max_recommended_seas_ft: 5, draft_ft: 3.0 }, cruise: 17 },
+  'builtin-t16': { v: { ...tahoeT16, draft_ft: 1.2 }, cruise: 22 },
 };
 
 function customVessels(): { id: string; v: TripVessel; cruise: number }[] {
@@ -152,7 +153,7 @@ function customVessels(): { id: string; v: TripVessel; cruise: number }[] {
       v: {
         name: d.name, type: d.type, loa_ft: d.loa_ft, max_recommended_seas_ft: d.max_seas_ft,
         engine_curve: d.curve, usable_gal: d.usable_gal, reserve_frac: d.reserve_frac,
-        profile_confirmed_days_ago: 0,
+        profile_confirmed_days_ago: 0, draft_ft: d.draft_ft,
       },
       cruise: d.cruise_kn,
     };
@@ -217,6 +218,7 @@ function openEditor(id: string | null) {
     ($('v-name') as HTMLInputElement).value = d.name;
     ($('v-type') as HTMLSelectElement).value = d.type;
     ($('v-loa') as HTMLInputElement).value = d.loa_ft;
+    ($('v-draft') as HTMLInputElement).value = d.draft_ft ?? '';
     ($('v-seas') as HTMLInputElement).value = d.max_seas_ft;
     ($('v-fuel') as HTMLInputElement).value = d.usable_gal;
     ($('v-reserve') as HTMLInputElement).value = Math.round(d.reserve_frac * 100) as any;
@@ -229,6 +231,7 @@ function openEditor(id: string | null) {
     ($('v-name') as HTMLInputElement).value = '';
     ($('v-type') as HTMLSelectElement).value = 'open_bow';
     ($('v-loa') as HTMLInputElement).value = '';
+    ($('v-draft') as HTMLInputElement).value = '';
     ($('v-seas') as HTMLInputElement).value = '2';
     ($('v-fuel') as HTMLInputElement).value = '';
     ($('v-reserve') as HTMLInputElement).value = '20';
@@ -263,6 +266,7 @@ $('v-save').addEventListener('click', () => {
     name,
     type: ($('v-type') as HTMLSelectElement).value,
     loa_ft: +($('v-loa') as HTMLInputElement).value || 20,
+    draft_ft: +($('v-draft') as HTMLInputElement).value || undefined,
     max_seas_ft: +($('v-seas') as HTMLInputElement).value || 2,
     usable_gal: +($('v-fuel') as HTMLInputElement).value || 20,
     reserve_frac: (+($('v-reserve') as HTMLInputElement).value || 20) / 100,
@@ -473,21 +477,27 @@ $('auto-route').addEventListener('click', () => {
   }
   warnEl.style.display = 'block';
   warnEl.innerHTML = `<span class="sub">Routing through the water…</span>`;
-  setTimeout(() => {
+  setTimeout(async () => {
     let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
     for (const w of wps) { minLat = Math.min(minLat, w.lat); maxLat = Math.max(maxLat, w.lat); minLon = Math.min(minLon, w.lon); maxLon = Math.max(maxLon, w.lon); }
     const span = Math.max(maxLat - minLat, maxLon - minLon, 0.02);
     const hazards = hazardMarks().map(h => ({ lat: h.lat, lon: h.lon, radius_nm: HAZARD_CLEARANCE_NM[h.kind] ?? 0.05 }));
+    const draftFt = tripState.vessel?.draft_ft;
+    const neededFt = draftFt ? Math.round((draftFt + 2) * 10) / 10 : null;   // draft + 2 ft under-keel safety
+    let gated = false;   // did charted depths actually constrain this search?
 
     /** One search attempt at a given breadth. A long headland can force a
      *  detour far outside the direct corridor, so if the tight search finds
      *  no path we retry once over a much wider area before saying no. */
-    const attempt = (maskPadF: number, corePad: number, maskPx: number, res: number) => {
+    const attempt = async (maskPadF: number, corePad: number, maskPx: number, res: number) => {
       const padD = span * maskPadF;
-      const mask = chart.buildWaterMask(
-        { minLat: minLat - padD, maxLat: maxLat + padD, minLon: minLon - padD, maxLon: maxLon + padD },
-        maskPx, cachedWaterRings(), hazards,
-      );
+      const bb = { minLat: minLat - padD, maxLat: maxLat + padD, minLon: minLon - padD, maxLon: maxLon + padD };
+      let gate: DepthGate | null = null;
+      if (chart.enc && neededFt) {
+        gate = await buildDepthGate(chart.enc, bb, neededFt * 0.3048);
+        gated = gate.coverage;
+      }
+      const mask = chart.buildWaterMask(bb, maskPx, cachedWaterRings(), hazards, gate);
       const out: typeof wps = [wps[0]];
       let snapped = false;
       for (let i = 0; i < wps.length - 1; i++) {
@@ -499,10 +509,11 @@ $('auto-route').addEventListener('click', () => {
       return { ok: true as const, out, snapped };
     };
 
-    let result = attempt(0.45, 0.35, 420, 220);
-    if (!result.ok && /no navigable path/.test(result.reason)) result = attempt(1.7, 1.5, 640, 300);
+    let result = await attempt(0.45, 0.35, 420, 220);
+    if (!result.ok && /no navigable path|not on navigable water/.test(result.reason)) result = await attempt(1.7, 1.5, 640, 300);
     if (!result.ok) {
-      warnEl.innerHTML = `<div style="color:var(--bad);font-size:13px;font-weight:600">Auto-route: ${esc(result.reason)}</div><div class="sub" style="margin-top:4px">Shoreline here is generalized data — narrow channels may be invisible to it until chart packs land. Plot manually and drag waypoints; the hazard check still watches your route.</div>`;
+      const depthNote = gated ? ` With charted depths on, water shallower than ${neededFt} ft (your draft + 2 ft) is off-limits \u2014 a shoal may be closing the direct path.` : '';
+      warnEl.innerHTML = `<div style="color:var(--bad);font-size:13px;font-weight:600">Auto-route: ${esc(result.reason)}</div><div class="sub" style="margin-top:4px">Shoreline here is generalized data — narrow channels may be invisible to it until chart packs land.${depthNote} Plot manually and drag waypoints; the hazard check still watches your route.</div>`;
       return;
     }
     const { out, snapped } = result;
@@ -513,9 +524,46 @@ $('auto-route').addEventListener('click', () => {
     onRouteChange();
     chart.render();
     const nm = routeDistanceNm(chart.st.waypoints);
-    warnEl.innerHTML = `<div style="color:var(--good);font-size:13px;font-weight:600">✓ Auto-routed through the water — ${nm} nm, ${chart.st.waypoints.length} waypoints, clear of land and your marked hazards${snapped ? ' (endpoint nudged to the nearest navigable water)' : ''}.</div><div class="sub" style="margin-top:4px">Based on generalized shorelines${cachedWaterRings().length ? ' + detailed OSM waterbodies you\u2019ve searched' : ''} — not depth. Depth-aware routing arrives with ENC chart packs. Drag any waypoint to adjust; verify the water.</div>`;
+    const depthLine = gated
+      ? `Charted water shallower than <b>${neededFt} ft</b> (your draft + 2 ft safety) is avoided \u2014 NOAA ENC depth areas, guaranteed-minimum (DRVAL1) basis.`
+      : chart.enc && !neededFt
+        ? `A chart pack is loaded but your vessel has no draft set \u2014 add it in the Vessel tab and Auto-route becomes depth-aware.`
+        : `Based on generalized shorelines${cachedWaterRings().length ? ' + detailed OSM waterbodies you\u2019ve searched' : ''} \u2014 not depth. Load an ENC chart pack for depth-aware routing.`;
+    warnEl.innerHTML = `<div style="color:var(--good);font-size:13px;font-weight:600">✓ Auto-routed through the water — ${nm} nm, ${chart.st.waypoints.length} waypoints, clear of land${gated ? ', charted shoals, and' : ' and'} your marked hazards${snapped ? ' (endpoint nudged to the nearest navigable water)' : ''}.</div><div class="sub" style="margin-top:4px">${depthLine} Drag any waypoint to adjust; verify the water.</div>`;
   }, 30);
 });
+
+// ================= ENC chart packs =================
+
+async function activatePack(files: { name: string; blob: Blob }[], announce: boolean) {
+  const pack = await EncPack.fromFiles(files);
+  pack.onTiles = () => chart.render();
+  chart.enc = pack;
+  const b = pack.boundsOf('depth-areas') ?? pack.boundsOf('coastline');
+  $('enc-status').innerHTML = `<b>${esc(pack.region)}</b> loaded \u2014 ${pack.roles.size} layers \u00b7 ${esc(pack.provenance)}.<br>Depth tints, soundings, and aids are on the chart; Auto-route now avoids charted water your boat can\u2019t float in (needs vessel draft). Stored on this device \u2014 works offline.`;
+  if (announce && b) chart.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, 9.5);
+  chart.render();
+}
+
+$('enc-files').addEventListener('change', async () => {
+  const input = $('enc-files') as HTMLInputElement;
+  const files = Array.from(input.files ?? []).map(f => ({ name: f.name, blob: f as Blob }));
+  if (!files.length) return;
+  try {
+    await activatePack(files, true);
+    const stored = await Promise.all(files.map(async f => ({ name: f.name, buf: await f.blob.arrayBuffer() })));
+    await savePackFiles(stored);
+  } catch (e) {
+    $('enc-status').innerHTML = `<span style="color:var(--bad)">Couldn\u2019t read those files: ${esc(String((e as Error).message))}.</span> Select the <b>.pmtiles</b> files (and manifest.json) from one chart-pack build.`;
+  }
+  input.value = '';
+});
+
+async function restorePack() {
+  const stored = await loadPackFiles();
+  if (!stored?.length) return;
+  try { await activatePack(stored.map(st0 => ({ name: st0.name, blob: new Blob([st0.buf]) })), false); } catch { /* stale/corrupt \u2014 captain reloads */ }
+}
 $('undo-wp').addEventListener('click', () => { chart.st.waypoints.pop(); onRouteChange(); chart.render(); });
 $('clear-wp').addEventListener('click', () => { chart.st.waypoints = []; onRouteChange(); chart.render(); });
 
@@ -970,8 +1018,13 @@ $('vintage').innerHTML = [
 
 // ================= Boot =================
 
-(window as any).__bf = { chart: () => chart, mask: (bb: any, px: number) => chart.buildWaterMask(bb, px, [], []) };
+(window as any).__bf = {
+  chart: () => chart,
+  mask: (bb: any, px: number) => chart.buildWaterMask(bb, px, [], []),
+  depthGate: (bb: any, neededM: number) => chart.enc ? buildDepthGate(chart.enc, bb, neededM) : null,
+};
 initConditions();
+void restorePack();
 renderPassage(recMin);
 refreshVesselSelect();
 applyVesselChoice();

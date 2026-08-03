@@ -12,7 +12,10 @@ import { RiskVessel, RiskAssessment, assessRisk } from './risk.js';
  * Explanation the captain can interrogate line by line.
  */
 
-export interface TripVessel extends VesselFuelProfile, RiskVessel {}
+export interface TripVessel extends VesselFuelProfile, RiskVessel {
+  /** Hull draft, feet — used by depth-aware routing (draft + safety clearance). */
+  draft_ft?: number;
+}
 
 export type SpeedChoice = 'top' | 'cruise' | 'best_economy';
 

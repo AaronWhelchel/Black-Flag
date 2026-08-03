@@ -1,0 +1,21 @@
+{
+  "pack": "enc",
+  "region": "fixture-keys",
+  "built_at": "2026-08-03T15:24:24.122Z",
+  "layers": {
+    "depth-areas": "fixture-keys-depth-areas.pmtiles",
+    "depth-contours": "fixture-keys-depth-contours.pmtiles",
+    "coastline": "fixture-keys-coastline.pmtiles",
+    "soundings": "fixture-keys-soundings.pmtiles",
+    "buoys-lateral": "fixture-keys-buoys-lateral.pmtiles",
+    "lights": "fixture-keys-lights.pmtiles",
+    "obstructions": "fixture-keys-obstructions.pmtiles",
+    "wrecks": "fixture-keys-wrecks.pmtiles",
+    "restricted-areas": "fixture-keys-restricted-areas.pmtiles"
+  },
+  "provenance": {
+    "source": "SYNTHETIC FIXTURE — test data, not a chart",
+    "license": "n/a",
+    "note": "for pipeline/UI tests only"
+  }
+}
