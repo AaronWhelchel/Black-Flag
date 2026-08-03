@@ -18,6 +18,7 @@ import type { HazardMark } from '../packages/core/src/route.js';
 import { SyncEngine } from '../packages/sync/src/index.js';
 import { makeStore, DeviceStore, savePackFiles, loadPackFiles } from './store.js';
 import { EncPack, buildDepthGate, DepthGate } from './enc.js';
+import { fetchIslands } from './osmland.js';
 import { fetchTripWx, fetchTripTides, fetchWaterLevel, TripWx, TripTides, WaterLevel } from './tripdata.js';
 // @ts-ignore — JSON bundled by esbuild
 import hydroPack from './packs/hydro-east-na.json';
@@ -490,6 +491,20 @@ $('auto-route').addEventListener('click', () => {
     const neededFt = draftFt ? Math.round((draftFt + 2) * 10) / 10 : null;   // draft + 2 ft under-keel safety
     let gated = false;       // did charted depths actually constrain this search?
     let cautioned = false;   // did the route have to cross not-guaranteed water?
+    let islandNote = '';     // OSM island fetch outcome — part of the route's honest basis
+    // Small islands don't exist in bundled shorelines — pull them from OSM
+    // for the widest search box so every attempt sees them. Failure is
+    // honest: route computes without them and the basis line says so.
+    let islands: number[][][] = [];
+    {
+      const padW = span * 1.7;
+      try {
+        const isl = await fetchIslands({ minLat: minLat - padW, maxLat: maxLat + padW, minLon: minLon - padW, maxLon: maxLon + padW });
+        if (isl) { islands = isl.rings; islandNote = isl.provenance; }
+      } catch {
+        islandNote = 'island data unreachable right now — small islands may be missing from this basis; verify the line visually';
+      }
+    }
 
     /** One search attempt at a given breadth. A long headland can force a
      *  detour far outside the direct corridor, so if the tight search finds
@@ -508,7 +523,7 @@ $('auto-route').addEventListener('click', () => {
         const cellNm = (span * (1 + 2 * corePad) * 55) / res;
         gate.berth_nm = Math.max(0.015, 0.75 * cellNm);
       }
-      const mask = chart.buildWaterMask(bb, maskPx, cachedWaterRings(), hazards, gate);
+      const mask = chart.buildWaterMask(bb, maskPx, cachedWaterRings(), hazards, gate, islands);
       const out: typeof wps = [wps[0]];
       let snapped = false;
       for (let i = 0; i < wps.length - 1; i++) {
@@ -547,7 +562,7 @@ $('auto-route').addEventListener('click', () => {
       ? `Charted water shallower than <b>${neededFt} ft</b> (your draft + 2 ft safety) is avoided \u2014 NOAA ENC depth areas, guaranteed-minimum (DRVAL1) basis.`
       : chart.enc && !neededFt
         ? `A chart pack is loaded but your vessel has no draft set \u2014 add it in the Vessel tab and Auto-route becomes depth-aware.`
-        : `Based on generalized shorelines${cachedWaterRings().length ? ' + detailed OSM waterbodies you\u2019ve searched' : ''} \u2014 not depth. Load an ENC chart pack for depth-aware routing.`;
+        : `Based on generalized shorelines${cachedWaterRings().length ? ' + detailed OSM waterbodies you\u2019ve searched' : ''}${islandNote ? ' \u00b7 ' + islandNote : ''} \u2014 not depth. Load an ENC chart pack for depth-aware routing.`;
     warnEl.innerHTML = `<div style="color:var(--good);font-size:13px;font-weight:600">✓ Auto-routed through the water — ${nm} nm, ${chart.st.waypoints.length} waypoints, clear of land${gated ? ', charted shoals, and' : ' and'} your marked hazards${snapped ? ' (endpoint nudged to the nearest navigable water)' : ''}.</div>${cautionLine}<div class="sub" style="margin-top:4px">${depthLine} Drag any waypoint to adjust; verify the water.</div>`;
   }, 30);
 });

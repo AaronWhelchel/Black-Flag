@@ -232,6 +232,7 @@ export class Chart {
     extraWater: number[][][],
     blocked: { lat: number; lon: number; radius_nm: number }[],
     depthGate?: DepthGate | null,
+    extraLand: number[][][] = [],
   ): { isWater: (lat: number, lon: number) => boolean } {
     const spanLon = bb.maxLon - bb.minLon, spanLat = bb.maxLat - bb.minLat;
     const aspect = spanLon / spanLat;
@@ -268,6 +269,25 @@ export class Chart {
     drawRings(this.hydroLakes.filter(l => touches(l.bb)).map(l => l.ring), '#fff');
     drawRings(this.hydroRivers.filter(r => touches(r.bb)).map(r => r.ring), '#fff');
     if (extraWater.length) drawRings(extraWater, '#fff');
+    // …minus islands the base shorelines are too coarse to know (OSM fetch —
+    // small keys and cays simply don't exist in bundled datasets). A modest
+    // stroke keeps the route off the beach without sealing inter-island
+    // channels…
+    if (extraLand.length) {
+      drawRings(extraLand, '#000');
+      g.strokeStyle = '#000';
+      g.lineWidth = Math.max(2, (0.04 / ((bb.maxLon - bb.minLon) * 55)) * W);
+      g.lineJoin = 'round';
+      g.beginPath();
+      for (const ring of extraLand) {
+        for (let k = 0; k < ring.length; k++) {
+          const x = px(ring[k][0]), y = py(ring[k][1]);
+          k ? g.lineTo(x, y) : g.moveTo(x, y);
+        }
+        g.closePath();
+      }
+      g.stroke();
+    }
     // Hole-aware polygon fill: evenodd PER POLYGON — a deep channel is often
     // a HOLE in a surrounding shallow polygon, so rings can't fill solid; but
     // batching multiple polygons into one evenodd path would make the
