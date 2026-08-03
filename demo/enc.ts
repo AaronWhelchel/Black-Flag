@@ -170,6 +170,11 @@ function eachRing(geom: EncFeature['geom'], cb: (ring: number[][]) => void) {
   if (geom.type === 'Polygon') for (const ring of geom.coordinates) cb(ring);
   else if (geom.type === 'MultiPolygon') for (const poly of geom.coordinates) for (const ring of poly) cb(ring);
 }
+/** Polygon-level access: cb receives [outer, ...holes] per polygon. */
+function eachPoly(geom: EncFeature['geom'], cb: (rings: number[][][]) => void) {
+  if (geom.type === 'Polygon') cb(geom.coordinates);
+  else if (geom.type === 'MultiPolygon') for (const poly of geom.coordinates) cb(poly);
+}
 function eachLine(geom: EncFeature['geom'], cb: (line: number[][]) => void) {
   if (geom.type === 'LineString') cb(geom.coordinates);
   else if (geom.type === 'MultiLineString') for (const l of geom.coordinates) cb(l);
@@ -378,14 +383,36 @@ export function drawEnc(pack: EncPack, ctx: CanvasRenderingContext2D, project: P
 // ================= depth gate for auto-routing =================
 
 export interface DepthGate {
-  /** DEPARE polygons whose guaranteed minimum depth is below what the vessel
-   *  needs — these get blocked in the water mask. */
-  shallowRings: number[][][];
+  /** HARD-blocked polygons: charted MAXIMUM depth (DRVAL2) below what the
+   *  vessel needs — even at its deepest this water can't float her. */
+  shallowPolys: number[][][][];
+  /** CAUTION polygons: guaranteed minimum (DRVAL1) below need, but charted
+   *  max is not. USACE lakes chart most open water 0–9 ft ("not surveyed to
+   *  project depth") even where it's 40 ft deep — hard-blocking these makes
+   *  whole lakes unroutable. Routing avoids them when a guaranteed path
+   *  exists and crosses them with an explicit warning when it doesn't. */
+  cautionPolys: number[][][][];
+  /** set false to let the mask keep caution water open (relaxed pass) */
+  blockCaution?: boolean;
+  /** [w,s,e,n] extent of charted depth coverage — inside it the chart is the
+   *  ONLY water authority (generalized base shorelines are wrong in exactly
+   *  the places that matter, e.g. showing false water across a peninsula) */
+  coverageRect?: [number, number, number, number];
   /** charted wrecks/obstructions shoaler than the vessel needs */
   shallowPoints: { lat: number; lon: number; radius_nm: number }[];
   /** charted dams — hard barriers regardless of draft (lockages are a
    *  planned-stop feature, not a thing to route blindly through) */
   barrierLines: number[][][];
+  /** ALL charted depth areas — authoritative water, carved INTO the mask so
+   *  chart-visible channels (e.g. the Barkley Canal) are routable even where
+   *  generalized shorelines can't see them */
+  waterPolys: number[][][][];
+  /** Berth (each side) applied to shallow boundaries in the mask, nm. The
+   *  berth's job is to stop grid routing hugging a shoal by half a cell — so
+   *  it must SCALE with the routing grid: a fixed fat berth seals real
+   *  channels (the Barkley Canal is ~0.07 nm wide). Set by the router from
+   *  its grid cell size; defaults conservative for direct mask use. */
+  berth_nm?: number;
   neededM: number | null;
   coverage: boolean;
 }
@@ -398,15 +425,25 @@ export interface DepthGate {
  *  `offsetM` = current water level relative to the charted datum (from a
  *  gauge or the captain), positive = more water than charted. */
 export async function buildDepthGate(pack: EncPack, bb: BBox, neededM: number | null, offsetM = 0): Promise<DepthGate> {
-  const gate: DepthGate = { shallowRings: [], shallowPoints: [], barrierLines: [], neededM, coverage: pack.covers(bb) };
+  const gate: DepthGate = { shallowPolys: [], cautionPolys: [], shallowPoints: [], barrierLines: [], waterPolys: [], neededM, coverage: pack.covers(bb) };
   if (!gate.coverage) return gate;
+  const db = pack.boundsOf('depth-areas');
+  if (db) gate.coverageRect = db;
   const zHint = 12;
-  if (neededM !== null) {
+  {
     const depare = await pack.ensure('depth-areas', bb, zHint);
     for (const f of depare) {
-      if (!(Number(f.props.DRVAL1) + offsetM < neededM)) continue;
-      eachRing(f.geom, (ring) => gate.shallowRings.push(ring));
+      eachPoly(f.geom, (rings) => gate.waterPolys.push(rings));
+      if (neededM === null) continue;
+      const d1 = Number(f.props.DRVAL1), d2 = Number(f.props.DRVAL2);
+      if (Number.isFinite(d2) && d2 + offsetM < neededM) {
+        eachPoly(f.geom, (rings) => gate.shallowPolys.push(rings));      // hard: max depth below need
+      } else if (Number.isFinite(d1) && d1 + offsetM < neededM) {
+        eachPoly(f.geom, (rings) => gate.cautionPolys.push(rings));      // not guaranteed at need
+      }
     }
+  }
+  if (neededM !== null) {
     for (const role of ['wrecks', 'obstructions'] as EncRole[]) {
       for (const f of await pack.ensure(role, bb, zHint)) {
         const sou = Number(f.props.VALSOU);

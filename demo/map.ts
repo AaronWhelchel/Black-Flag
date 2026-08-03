@@ -268,26 +268,70 @@ export class Chart {
     drawRings(this.hydroLakes.filter(l => touches(l.bb)).map(l => l.ring), '#fff');
     drawRings(this.hydroRivers.filter(r => touches(r.bb)).map(r => r.ring), '#fff');
     if (extraWater.length) drawRings(extraWater, '#fff');
-    const latMid = (bb.minLat + bb.maxLat) / 2;
-    const nmPerLon = 60 * Math.cos((latMid * Math.PI) / 180);
-    // …minus charted water too shallow for this vessel (ENC DRVAL1 gate).
-    // Shoals get a ~0.15 nm berth: grid routing can hug a blocked boundary by
-    // half a cell, and a route should never shave a charted shallow that close.
-    if (depthGate?.shallowRings.length) {
-      drawRings(depthGate.shallowRings, '#000');
-      g.strokeStyle = '#000';
-      g.lineWidth = Math.max(2, (0.3 / nmPerLon / spanLon) * W);   // 2×0.15 nm total
-      g.lineJoin = 'round';
-      for (let i = 0; i < depthGate.shallowRings.length; i += 300) {
+    // Hole-aware polygon fill: evenodd PER POLYGON — a deep channel is often
+    // a HOLE in a surrounding shallow polygon, so rings can't fill solid; but
+    // batching multiple polygons into one evenodd path would make the
+    // overlapping clipped copies that tile buffers produce cancel each other
+    // into voids. One path + fill per polygon is both correct and fast enough
+    // (hundreds of polys, not the 72k-lake case drawRings chunks for).
+    const drawPolys = (polys: number[][][][], color: string) => {
+      g.fillStyle = color;
+      for (const poly of polys) {
         g.beginPath();
-        for (const ring of depthGate.shallowRings.slice(i, i + 300)) {
-          for (let k = 0; k < ring.length; k++) {
-            const x = px(ring[k][0]), y = py(ring[k][1]);
-            k ? g.lineTo(x, y) : g.moveTo(x, y);
+        for (const ring of poly) {
+          let first = true;
+          for (const pt of ring) {
+            const x = px(pt[0] as number), y = py(pt[1] as number);
+            if (first) { g.moveTo(x, y); first = false; } else g.lineTo(x, y);
           }
           g.closePath();
         }
-        g.stroke();
+        g.fill('evenodd');
+      }
+    };
+    // Inside charted-depth coverage the chart is the ONLY water authority:
+    // paint the coverage extent land-black, then carve charted water back in.
+    // Generalized base shorelines are wrong exactly where it matters (false
+    // water across a peninsula, missing canals).
+    if (depthGate?.coverageRect && depthGate.waterPolys.length) {
+      const [cw, cs, ce, cn] = depthGate.coverageRect;
+      g.fillStyle = '#000';
+      g.fillRect(px(cw), py(cn), px(ce) - px(cw), py(cs) - py(cn));
+    }
+    // …plus charted depth areas — authoritative water (channels invisible to
+    // generalized shorelines, e.g. a canal between lakes, become routable)…
+    if (depthGate?.waterPolys.length) drawPolys(depthGate.waterPolys, '#fff');
+    const latMid = (bb.minLat + bb.maxLat) / 2;
+    const nmPerLon = 60 * Math.cos((latMid * Math.PI) / 180);
+    // …minus charted water too shallow for this vessel (ENC DRVAL1 gate).
+    // Shoals get a berth scaled to the routing grid (see DepthGate.berth_nm):
+    // wide enough that a route can never hug a charted shallow within half a
+    // grid cell, narrow enough not to seal real channels.
+    {
+      const blockedPolys = [
+        ...(depthGate?.shallowPolys ?? []),
+        ...(depthGate && depthGate.blockCaution !== false ? depthGate.cautionPolys : []),
+      ];
+      if (blockedPolys.length) {
+        const berth = depthGate!.berth_nm ?? 0.15;
+        drawPolys(blockedPolys, '#000');
+        // berth stroke on every ring — hole boundaries are shoal edges too
+        g.strokeStyle = '#000';
+        g.lineWidth = Math.max(2, (2 * berth / nmPerLon / spanLon) * W);
+        g.lineJoin = 'round';
+        for (let i = 0; i < blockedPolys.length; i += 200) {
+          g.beginPath();
+          for (const poly of blockedPolys.slice(i, i + 200)) {
+            for (const ring of poly) {
+              for (let k = 0; k < ring.length; k++) {
+                const x = px(ring[k][0]), y = py(ring[k][1]);
+                k ? g.lineTo(x, y) : g.moveTo(x, y);
+              }
+              g.closePath();
+            }
+          }
+          g.stroke();
+        }
       }
     }
     // …minus charted dams — hard barriers, drawn as thick blocked strokes…
