@@ -5,7 +5,7 @@
  */
 import {
   recommendDeparture, evaluateDeparture, roughInletWindows,
-  planTrip, routeDistanceNm, vesselSpeeds,
+  planTrip, routeDistanceNm, vesselSpeeds, haversineNm,
   fmtTime, cardinal,
 } from '../packages/core/src/index.js';
 import type { Explanation, TripInputs, TripVessel, SpeedChoice } from '../packages/core/src/index.js';
@@ -13,6 +13,7 @@ import { scenario as manasquan, vessel as restless31 } from '../packages/core/te
 import { tahoeT16, t16Trip } from '../packages/core/test/fixtures-trip.js';
 import { Chart, Buoy, ClickMode, MapMode, KIND_STYLE } from './map.js';
 import { routeConflicts, suggestDetour, HAZARD_CLEARANCE_NM, extraDistanceNm } from '../packages/core/src/route.js';
+import { autoRoute, estimateFetchLimitedWaves } from '../packages/core/src/index.js';
 import type { HazardMark } from '../packages/core/src/route.js';
 import { SyncEngine } from '../packages/sync/src/index.js';
 import { makeStore, DeviceStore } from './store.js';
@@ -380,12 +381,12 @@ let tripTides: TripTides | null = null;
 let wxTimer: any = null;
 let wxSeq = 0;
 
-function renderTripWxCard(status?: string) {
+function renderTripWxCard(status?: string, waveNote?: string) {
   const el = $('trip-wx-body');
   if (status) { el.innerHTML = `<span class="sub">${esc(status)}</span>`; return; }
   if (!tripWx) return;
   const gust = tripWx.gust_kn ? ` (gusts ${tripWx.gust_kn} kt)` : '';
-  const seas = tripWx.seas_ft !== null ? `${tripWx.seas_ft} ft seas (NWS marine grid)` : 'no marine wave grid here — seas not forecast (inland water)';
+  const seas = tripWx.seas_ft !== null ? `${tripWx.seas_ft} ft seas (NWS marine grid)` : (waveNote || 'no wave data for this water');
   el.innerHTML = `
     <div style="font-size:14px;color:var(--ink)"><b>${cardinal(tripWx.wind_from_deg)} ${tripWx.wind_kn} kt${gust}</b> · ${seas}</div>
     <div style="margin-top:4px;color:var(--ink)">${esc(tripWx.summary)}</div>
@@ -398,6 +399,7 @@ async function refreshTripData() {
   if (chart.st.waypoints.length < 2) return;
   const seq = ++wxSeq;
   renderTripWxCard('Fetching NOAA forecast & tides for this route…');
+  $('tide-line').textContent = '';
   try {
     const wx = await fetchTripWx(chart.st.waypoints);
     if (seq !== wxSeq) return;               // a newer route superseded this fetch
@@ -410,13 +412,28 @@ async function refreshTripData() {
       seas_ft: wx.seas_ft ?? 1, seas_from_deg: wx.wind_from_deg,
     };
     tripState.forecast_age_hours = 0;
+    // Inland waters: no wave forecast exists anywhere — estimate wind chop
+    // from fetch-limited wave physics, and say exactly that.
+    let waveNote = '';
+    if (wx.seas_ft === null && chart.st.waypoints.length >= 2) {
+      let fetchNm = 0;
+      const wps = chart.st.waypoints;
+      for (let i = 0; i < wps.length; i++)
+        for (let j = i + 1; j < wps.length; j++)
+          fetchNm = Math.max(fetchNm, haversineNm(wps[i], wps[j]));
+      const est = estimateFetchLimitedWaves(wx.wind_kn, Math.min(10, Math.max(0.5, fetchNm * 1.4)));
+      tripState.forecast.seas_ft = est.seas_ft;
+      waveNote = est.detail;
+    }
     tripState.data_vintage = {
       ...tripState.data_vintage,
-      weather: `${wx.provenance} · fetched ${wx.fetched_at.slice(11, 16)}Z`,
+      weather: `${wx.provenance}${waveNote ? ' · chop: fetch-limited physics estimate' : ''} · fetched ${wx.fetched_at.slice(11, 16)}Z`,
       ...(tripTides ? { tides: tripTides.provenance } : {}),
     };
-    renderTripWxCard();
-    if (tripTides) $('tide-line').textContent = `Tides ${tripTides.name} (${tripTides.date}): ${tripTides.events.map(e => `${e.type} ${e.t}`).join(' · ')} · ${tripTides.provenance}`;
+    renderTripWxCard(undefined, waveNote);
+    $('tide-line').textContent = tripTides
+      ? `Tides ${tripTides.name} (${tripTides.date}): ${tripTides.events.map(e => `${e.type} ${e.t}`).join(' · ')} · ${tripTides.provenance}`
+      : '';
     renderTrip();
   } catch (e) {
     if (seq !== wxSeq) return;
@@ -446,6 +463,59 @@ function onRouteChange() {
     persistSoon();
   }
 }
+$('auto-route').addEventListener('click', () => {
+  const wps = chart.st.waypoints;
+  const warnEl = $('route-warnings');
+  if (wps.length < 2) {
+    warnEl.style.display = 'block';
+    warnEl.innerHTML = `<span class="sub">Drop at least a start and an end waypoint, then Auto-route connects them through the water.</span>`;
+    return;
+  }
+  warnEl.style.display = 'block';
+  warnEl.innerHTML = `<span class="sub">Routing through the water…</span>`;
+  setTimeout(() => {
+    let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+    for (const w of wps) { minLat = Math.min(minLat, w.lat); maxLat = Math.max(maxLat, w.lat); minLon = Math.min(minLon, w.lon); maxLon = Math.max(maxLon, w.lon); }
+    const span = Math.max(maxLat - minLat, maxLon - minLon, 0.02);
+    const hazards = hazardMarks().map(h => ({ lat: h.lat, lon: h.lon, radius_nm: HAZARD_CLEARANCE_NM[h.kind] ?? 0.05 }));
+
+    /** One search attempt at a given breadth. A long headland can force a
+     *  detour far outside the direct corridor, so if the tight search finds
+     *  no path we retry once over a much wider area before saying no. */
+    const attempt = (maskPadF: number, corePad: number, maskPx: number, res: number) => {
+      const padD = span * maskPadF;
+      const mask = chart.buildWaterMask(
+        { minLat: minLat - padD, maxLat: maxLat + padD, minLon: minLon - padD, maxLon: maxLon + padD },
+        maskPx, cachedWaterRings(), hazards,
+      );
+      const out: typeof wps = [wps[0]];
+      let snapped = false;
+      for (let i = 0; i < wps.length - 1; i++) {
+        const r = autoRoute(wps[i], wps[i + 1], mask.isWater, { resolution: res, pad: corePad });
+        if (!r.ok) return { ok: false as const, reason: r.reason ?? 'failed' };
+        snapped = snapped || !!r.snapped_start || !!r.snapped_end;
+        out.push(...r.waypoints.slice(1, -1), wps[i + 1]);
+      }
+      return { ok: true as const, out, snapped };
+    };
+
+    let result = attempt(0.45, 0.35, 420, 220);
+    if (!result.ok && /no navigable path/.test(result.reason)) result = attempt(1.7, 1.5, 640, 300);
+    if (!result.ok) {
+      warnEl.innerHTML = `<div style="color:var(--bad);font-size:13px;font-weight:600">Auto-route: ${esc(result.reason)}</div><div class="sub" style="margin-top:4px">Shoreline here is generalized data — narrow channels may be invisible to it until chart packs land. Plot manually and drag waypoints; the hazard check still watches your route.</div>`;
+      return;
+    }
+    const { out, snapped } = result;
+    // Rename intermediates, keep captain's own endpoints.
+    let n = 0;
+    chart.st.waypoints = out.map((w, i) =>
+      i === 0 || i === out.length - 1 || wps.includes(w) ? w : { ...w, name: `A${++n}` });
+    onRouteChange();
+    chart.render();
+    const nm = routeDistanceNm(chart.st.waypoints);
+    warnEl.innerHTML = `<div style="color:var(--good);font-size:13px;font-weight:600">✓ Auto-routed through the water — ${nm} nm, ${chart.st.waypoints.length} waypoints, clear of land and your marked hazards${snapped ? ' (endpoint nudged to the nearest navigable water)' : ''}.</div><div class="sub" style="margin-top:4px">Based on generalized shorelines${cachedWaterRings().length ? ' + detailed OSM waterbodies you\u2019ve searched' : ''} — not depth. Depth-aware routing arrives with ENC chart packs. Drag any waypoint to adjust; verify the water.</div>`;
+  }, 30);
+});
 $('undo-wp').addEventListener('click', () => { chart.st.waypoints.pop(); onRouteChange(); chart.render(); });
 $('clear-wp').addEventListener('click', () => { chart.st.waypoints = []; onRouteChange(); chart.render(); });
 
@@ -671,8 +741,30 @@ $('search').addEventListener('input', () => {
 });
 document.addEventListener('click', (e) => { if (!(e.target as HTMLElement).closest('#searchwrap')) sr.style.display = 'none'; });
 
+/** Cache detailed waterbody shorelines (OSM via Nominatim, SRC-09) so
+ *  auto-routing knows lakes the generalized pack can't see well. */
+async function cacheWaterbody(name: string) {
+  try {
+    if (engine.list('waterbody').some(w => (w.data as any).name === name)) return;
+    const rows = await (await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&polygon_geojson=1&limit=1&q=${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(8000) })).json();
+    const gj = rows?.[0]?.geojson;
+    if (!gj) return;
+    const polys: number[][][] = gj.type === 'Polygon' ? [gj.coordinates[0]]
+      : gj.type === 'MultiPolygon' ? gj.coordinates.map((c: any) => c[0]) : [];
+    const thin = (ring: number[][]) => ring.filter((_, i) => i % Math.ceil(ring.length / 500) === 0 || i === ring.length - 1);
+    const rings = polys.map(thin).filter(r => r.length >= 4);
+    if (!rings.length) return;
+    engine.write('waterbody', `wb-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, 'create', { name, rings });
+    persistSoon();
+  } catch { /* offline — pack shoreline still works */ }
+}
+function cachedWaterRings(): number[][][] {
+  return engine.list('waterbody').flatMap(({ data }) => ((data as any).rings ?? []) as number[][][]);
+}
+
 async function selectPlace(p: Place) {
   sr.style.display = 'none';
+  if (/lake|river|bay|reservoir|inlet|sound|harbor|harbour/i.test(p.name + ' ' + p.region)) cacheWaterbody(p.name);
   ($('search') as HTMLInputElement).value = p.name;
   setTab('explore');
   chart.flyTo(p.lon, p.lat, p.zoom);
@@ -878,6 +970,7 @@ $('vintage').innerHTML = [
 
 // ================= Boot =================
 
+(window as any).__bf = { chart: () => chart, mask: (bb: any, px: number) => chart.buildWaterMask(bb, px, [], []) };
 initConditions();
 renderPassage(recMin);
 refreshVesselSelect();

@@ -73,6 +73,7 @@ export class Chart {
   private dragWp = -1;          // waypoint being dragged, -1 = none
   private lastX = 0; private lastY = 0;
   private polys: number[][][][] = [];
+  private landRings: { ring: number[][]; bb: [number, number, number, number] }[] = [];
   private hydroLakes: { ring: number[][]; bb: [number, number, number, number] }[] = [];
   private hydroRivers: { ring: number[][]; bb: [number, number, number, number] }[] = [];
   private tiles = new Map<string, HTMLImageElement | 'loading' | 'failed'>();
@@ -86,6 +87,16 @@ export class Chart {
       f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates) :
       land.geometry.type === 'Polygon' ? [land.geometry.coordinates] : land.geometry.coordinates;
     this.polys = geoms;
+    {
+      const bbox = (ring: number[][]) => {
+        let a = 180, b = 90, c = -180, d = -90;
+        for (const [x, y] of ring) { if (x < a) a = x; if (y < b) b = y; if (x > c) c = x; if (y > d) d = y; }
+        return [a, b, c, d] as [number, number, number, number];
+      };
+      for (const poly of this.polys) {
+        for (const ring of poly) this.landRings.push({ ring: ring as unknown as number[][], bb: bbox(ring as unknown as number[][]) });
+      }
+    }
     if (st.hydro) {
       const bbox = (ring: number[][]) => {
         let a = 180, b = 90, c = -180, d = -90;
@@ -202,6 +213,76 @@ export class Chart {
         this.st.onObstaclePlace?.(Math.round(p.lat * 10000) / 10000, Math.round(p.lon * 10000) / 10000);
       }
     });
+  }
+
+  // ---- water mask for auto-routing ----
+
+  /**
+   * Rasterize walkability for a bbox: water minus land, plus lake/waterbody
+   * polygons carved back in, minus hazard discs. Resolution ~maskPx on the
+   * longer axis. Linear lat/lon mapping — distortion is negligible at route
+   * scale and the router only needs topology, not survey accuracy.
+   */
+  buildWaterMask(
+    bb: { minLat: number; minLon: number; maxLat: number; maxLon: number },
+    maskPx: number,
+    extraWater: number[][][],
+    blocked: { lat: number; lon: number; radius_nm: number }[],
+  ): { isWater: (lat: number, lon: number) => boolean } {
+    const spanLon = bb.maxLon - bb.minLon, spanLat = bb.maxLat - bb.minLat;
+    const aspect = spanLon / spanLat;
+    const W = aspect >= 1 ? maskPx : Math.max(32, Math.round(maskPx * aspect));
+    const H = aspect >= 1 ? Math.max(32, Math.round(maskPx / aspect)) : maskPx;
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d', { willReadFrequently: true })!;
+    const px = (lon: number) => ((lon - bb.minLon) / spanLon) * W;
+    const py = (lat: number) => H - ((lat - bb.minLat) / spanLat) * H;
+    const touches = (bb: [number, number, number, number]) =>
+      !(bb[2] < bb2.minLon || bb[0] > bb2.maxLon || bb[3] < bb2.minLat || bb[1] > bb2.maxLat);
+    const bb2 = bb;
+    const drawRings = (rings: number[][][], color: string) => {
+      g.fillStyle = color;
+      for (let i = 0; i < rings.length; i += 300) {   // chunked: huge single paths hang canvas fill
+        g.beginPath();
+        for (const ring of rings.slice(i, i + 300)) {
+          let first = true;
+          for (const pt of ring) {
+            const x = px(pt[0] as number), y = py(pt[1] as number);
+            if (first) { g.moveTo(x, y); first = false; } else g.lineTo(x, y);
+          }
+          g.closePath();
+        }
+        g.fill();
+      }
+    };
+    // water everywhere…
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    // …minus nearby land…
+    drawRings(this.landRings.filter(l => touches(l.bb)).map(l => l.ring), '#000');
+    // …plus nearby lakes/rivers and any fetched waterbodies carved back in…
+    drawRings(this.hydroLakes.filter(l => touches(l.bb)).map(l => l.ring), '#fff');
+    drawRings(this.hydroRivers.filter(r => touches(r.bb)).map(r => r.ring), '#fff');
+    if (extraWater.length) drawRings(extraWater, '#fff');
+    // …minus hazard clearance discs.
+    const latMid = (bb.minLat + bb.maxLat) / 2;
+    const nmPerLon = 60 * Math.cos((latMid * Math.PI) / 180);
+    g.fillStyle = '#000';
+    for (const b of blocked) {
+      const rx = (b.radius_nm / nmPerLon / spanLon) * W;
+      const ry = (b.radius_nm / 60 / spanLat) * H;
+      g.beginPath();
+      g.ellipse(px(b.lon), py(b.lat), Math.max(1.5, rx), Math.max(1.5, ry), 0, 0, Math.PI * 2);
+      g.fill();
+    }
+    const data = g.getImageData(0, 0, W, H).data;
+    return {
+      isWater: (lat: number, lon: number) => {
+        const x = Math.round(px(lon)), y = Math.round(py(lat));
+        if (x < 0 || y < 0 || x >= W || y >= H) return false;
+        return data[(y * W + x) * 4] > 127;
+      },
+    };
   }
 
   // ---- satellite tiles ----

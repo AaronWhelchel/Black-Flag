@@ -32,7 +32,7 @@ const lakePolys = [];
 for (const poly of lakeGeom.coordinates) {
   const outer = poly[0];
   if (!ringTouches(outer)) continue;
-  if (outer.length < 12) continue;                       // drop specks at this scale
+  if (outer.length < 4) continue;                        // keep small reservoirs — captains boat there (Patoka!)
   const keep = outer.length > 2000 ? 6 : outer.length > 500 ? 3 : 1;
   lakePolys.push([thin(outer, keep)]);                   // outer ring only — islands-in-lakes below pack scale
 }

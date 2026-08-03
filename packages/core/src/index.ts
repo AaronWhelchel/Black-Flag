@@ -19,3 +19,5 @@ export * from './distance.js';
 export * from './risk.js';
 export * from './trip.js';
 export * from './route.js';
+export * from './waves.js';
+export * from './autoroute.js';
