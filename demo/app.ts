@@ -18,6 +18,7 @@ import type { HazardMark } from '../packages/core/src/route.js';
 import { SyncEngine } from '../packages/sync/src/index.js';
 import { makeStore, DeviceStore, savePackFiles, loadPackFiles } from './store.js';
 import { unzipSync } from 'fflate';
+import { regionForRoute, downloadPack } from './packfetch.js';
 import { EncPack, buildDepthGate, DepthGate } from './enc.js';
 import { fetchIslands, legCrossesCoast, CoastFetchResult } from './osmland.js';
 import { fetchTripWx, fetchTripTides, fetchWaterLevel, TripWx, TripTides, WaterLevel } from './tripdata.js';
@@ -408,6 +409,7 @@ async function refreshTripData() {
   const seq = ++wxSeq;
   renderTripWxCard('Fetching NOAA forecast & tides for this route…');
   $('tide-line').textContent = '';
+  void ensurePackForRoute();   // charts auto-download for the planned trip
   try {
     const wx = await fetchTripWx(chart.st.waypoints);
     if (seq !== wxSeq) return;               // a newer route superseded this fetch
@@ -485,6 +487,7 @@ $('auto-route').addEventListener('click', () => {
   warnEl.style.display = 'block';
   warnEl.innerHTML = `<span class="sub">Routing through the water…</span>`;
   setTimeout(async () => {
+    await ensurePackForRoute();   // per-trip chart pack, downloaded once
     let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
     for (const w of wps) { minLat = Math.min(minLat, w.lat); maxLat = Math.max(maxLat, w.lat); minLon = Math.min(minLon, w.lon); maxLon = Math.max(maxLon, w.lon); }
     const span = Math.max(maxLat - minLat, maxLon - minLon, 0.02);
@@ -635,6 +638,29 @@ $('enc-files').addEventListener('change', async () => {
   }
   input.value = '';
 });
+
+/** Per-trip pack auto-download: if a published region covers the route and
+ *  isn't the active pack, fetch + activate + persist it. Honest on failure. */
+let packEnsureBusy = false;
+async function ensurePackForRoute(): Promise<void> {
+  if (packEnsureBusy) return;
+  const wps = chart.st.waypoints;
+  if (wps.length < 2) return;
+  let mnLa = 90, mxLa = -90, mnLo = 180, mxLo = -180;
+  for (const w of wps) { mnLa = Math.min(mnLa, w.lat); mxLa = Math.max(mxLa, w.lat); mnLo = Math.min(mnLo, w.lon); mxLo = Math.max(mxLo, w.lon); }
+  const region = regionForRoute({ minLat: mnLa, maxLat: mxLa, minLon: mnLo, maxLon: mxLo });
+  if (!region || chart.enc?.region === region.key) return;
+  packEnsureBusy = true;
+  try {
+    const files = await downloadPack(region, (msg) => { $('enc-status').innerHTML = `<span class="sub">${esc(msg)}</span>`; });
+    if (files) {
+      await activatePack(files, false);
+      const stored = await Promise.all(files.map(async f => ({ name: f.name, buf: await f.blob.arrayBuffer() })));
+      await savePackFiles(stored);
+      $('enc-status').innerHTML = `<b>${esc(region.name)}</b> auto-downloaded for this trip — depth-aware routing and chart layers are on. Stored on this device; works offline from now on.`;
+    }
+  } finally { packEnsureBusy = false; }
+}
 
 async function restorePack() {
   const stored = await loadPackFiles();
