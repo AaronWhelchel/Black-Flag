@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false   # regions are independent — one failing must not cancel the rest
       matrix:
-        region: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.region)) || fromJSON('["nj-manasquan","fl-keys-bimini","ky-barkley-lakes"]') }}
+        region: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.region)) || fromJSON('["nj-manasquan","fl-keys-bimini","ky-barkley-lakes","fl-key-west"]') }}
     steps:
       - uses: actions/checkout@v5
       - name: Install toolchain

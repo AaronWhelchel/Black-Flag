@@ -29,7 +29,15 @@ export interface CoastFetchResult {
 
 interface OverpassWay { type: string; geometry?: { lat: number; lon: number }[] }
 
-const cache = new Map<string, CoastFetchResult>();
+const cache: { bb: { minLat: number; maxLat: number; minLon: number; maxLon: number }; result: CoastFetchResult }[] = [];
+
+/** Public Overpass instances — tried in order. The main instance rate-limits
+ *  (429) under playful route-tweaking; the mirror usually answers. Production
+ *  wants a self-hosted instance (register SRC-12 condition). */
+const OVERPASS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+];
 
 /** Stitch coastline way segments into chains; closed ones become rings. */
 export function stitchCoast(ways: { lat: number; lon: number }[][]): { rings: number[][][]; lines: number[][][] } {
@@ -61,30 +69,40 @@ export function stitchCoast(ways: { lat: number; lon: number }[][]): { rings: nu
 
 /** Fetch coastline for a bbox. Times out fast and fails honest-empty. */
 export async function fetchIslands(bb: { minLat: number; maxLat: number; minLon: number; maxLon: number }): Promise<CoastFetchResult | null> {
-  const k = [bb.minLat, bb.minLon, bb.maxLat, bb.maxLon].map(v => v.toFixed(3)).join(',');
-  if (cache.has(k)) return cache.get(k)!;
+  // a previously fetched box that CONTAINS this one answers from cache —
+  // dragging waypoints inside the same water must not re-query the service
+  for (const c of cache) {
+    if (bb.minLat >= c.bb.minLat && bb.maxLat <= c.bb.maxLat && bb.minLon >= c.bb.minLon && bb.maxLon <= c.bb.maxLon) return c.result;
+  }
   // cap the area — coastline stitching is for route-scale boxes, not oceans
   if ((bb.maxLat - bb.minLat) * (bb.maxLon - bb.minLon) > 4) return null;
   const q = `[out:json][timeout:12];way["natural"="coastline"](${bb.minLat.toFixed(4)},${bb.minLon.toFixed(4)},${bb.maxLat.toFixed(4)},${bb.maxLon.toFixed(4)});out geom;`;
-  const res = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    body: 'data=' + encodeURIComponent(q),
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!res.ok) throw new Error(`overpass ${res.status}`);
-  const js = await res.json();
-  const ways: { lat: number; lon: number }[][] = (js?.elements ?? [])
-    .filter((e: OverpassWay) => e.type === 'way' && Array.isArray(e.geometry))
-    .map((e: OverpassWay) => e.geometry!);
-  const { rings, lines } = stitchCoast(ways);
-  const out: CoastFetchResult = {
-    rings, lines,
-    count: lines.length,
-    provenance: `islands/coastline: OpenStreetMap (ODbL, ${lines.length} coastline chain${lines.length === 1 ? '' : 's'} in route area)`,
-  };
-  cache.set(k, out);
-  return out;
+  let lastErr: unknown = new Error('overpass unavailable');
+  for (const url of OVERPASS) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        body: 'data=' + encodeURIComponent(q),
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) { lastErr = new Error(`overpass ${res.status}`); continue; }   // 429 → try the mirror
+      const js = await res.json();
+      const ways: { lat: number; lon: number }[][] = (js?.elements ?? [])
+        .filter((e: OverpassWay) => e.type === 'way' && Array.isArray(e.geometry))
+        .map((e: OverpassWay) => e.geometry!);
+      const { rings, lines } = stitchCoast(ways);
+      const out: CoastFetchResult = {
+        rings, lines,
+        count: lines.length,
+        provenance: `islands/coastline: OpenStreetMap (ODbL, ${lines.length} coastline chain${lines.length === 1 ? '' : 's'} in route area)`,
+      };
+      cache.push({ bb, result: out });
+      if (cache.length > 12) cache.shift();
+      return out;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
 }
 
 /** Does the leg a→b cross any coastline chain (or start/end on island land)?

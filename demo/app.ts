@@ -497,6 +497,7 @@ $('auto-route').addEventListener('click', () => {
     // for the widest search box so every attempt sees them. Failure is
     // honest: route computes without them and the basis line says so.
     let coast: CoastFetchResult | null = null;
+    let coastFailed = false;
     {
       // fetch box wider than the WIDEST routing grid (1.5-pad retry), so a
       // chain clipped by the box ends beyond anywhere the router can reach —
@@ -506,7 +507,7 @@ $('auto-route').addEventListener('click', () => {
         coast = await fetchIslands({ minLat: minLat - padW, maxLat: maxLat + padW, minLon: minLon - padW, maxLon: maxLon + padW });
         if (coast) islandNote = coast.provenance;
       } catch {
-        islandNote = 'island data unreachable right now — small islands may be missing from this basis; verify the line visually';
+        coastFailed = true;
       }
     }
 
@@ -559,6 +560,9 @@ $('auto-route').addEventListener('click', () => {
     onRouteChange();
     chart.render();
     const nm = routeDistanceNm(chart.st.waypoints);
+    const coastWarn = coastFailed
+      ? `<div style="color:#a15c00;font-size:12.5px;font-weight:600;margin-top:4px">\u26a0 Island data couldn\u2019t be loaded (OpenStreetMap unreachable) \u2014 this route only avoids coarse shorelines and your marks. Small islands may be missing: verify the line visually, or try Auto-route again in a minute.</div>`
+      : '';
     const cautionLine = cautioned
       ? `<div style="color:#a15c00;font-size:12.5px;font-weight:600;margin-top:4px">\u26a0 Parts of this route cross water charted as not depth-guaranteed (e.g. \u201c0\u20139 ft\u201d USACE bands outside the surveyed channel). Often plenty deep in practice \u2014 but verify local depths and watch the sounder.</div>`
       : '';
@@ -567,7 +571,7 @@ $('auto-route').addEventListener('click', () => {
       : chart.enc && !neededFt
         ? `A chart pack is loaded but your vessel has no draft set \u2014 add it in the Vessel tab and Auto-route becomes depth-aware.`
         : `Based on generalized shorelines${cachedWaterRings().length ? ' + detailed OSM waterbodies you\u2019ve searched' : ''}${islandNote ? ' \u00b7 ' + islandNote : ''} \u2014 not depth. Load an ENC chart pack for depth-aware routing.`;
-    warnEl.innerHTML = `<div style="color:var(--good);font-size:13px;font-weight:600">✓ Auto-routed through the water — ${nm} nm, ${chart.st.waypoints.length} waypoints, clear of land${gated ? ', charted shoals, and' : ' and'} your marked hazards${snapped ? ' (endpoint nudged to the nearest navigable water)' : ''}.</div>${cautionLine}<div class="sub" style="margin-top:4px">${depthLine} Drag any waypoint to adjust; verify the water.</div>`;
+    warnEl.innerHTML = `<div style="color:var(--good);font-size:13px;font-weight:600">✓ Auto-routed through the water — ${nm} nm, ${chart.st.waypoints.length} waypoints, clear of land${gated ? ', charted shoals, and' : ' and'} your marked hazards${snapped ? ' (endpoint nudged to the nearest navigable water)' : ''}.</div>${coastWarn}${cautionLine}<div class="sub" style="margin-top:4px">${depthLine} Drag any waypoint to adjust; verify the water.</div>`;
   }, 30);
 });
 
@@ -657,7 +661,8 @@ async function refreshRouteCoast() {
   if (wps.length < 2) return;
   let mnLa = 90, mxLa = -90, mnLo = 180, mxLo = -180;
   for (const w of wps) { mnLa = Math.min(mnLa, w.lat); mxLa = Math.max(mxLa, w.lat); mnLo = Math.min(mnLo, w.lon); mxLo = Math.max(mxLo, w.lon); }
-  const pad = Math.max(mxLa - mnLa, mxLo - mnLo, 0.02) * 0.6;
+  // SAME padding as the auto-route fetch → same cache entry, one query
+  const pad = Math.max(mxLa - mnLa, mxLo - mnLo, 0.02) * 2.2;
   const seq = ++coastSeq;
   try {
     const c = await fetchIslands({ minLat: mnLa - pad, maxLat: mxLa + pad, minLon: mnLo - pad, maxLon: mxLo + pad });
