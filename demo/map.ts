@@ -311,13 +311,18 @@ export class Chart {
       }
     };
     // Inside charted-depth coverage the chart is the ONLY water authority:
-    // paint the coverage extent land-black, then carve charted water back in.
+    // paint the coverage area land-black, then carve charted water back in.
     // Generalized base shorelines are wrong exactly where it matters (false
-    // water across a peninsula, missing canals).
-    if (depthGate?.coverageRect && depthGate.waterPolys.length) {
-      const [cw, cs, ce, cn] = depthGate.coverageRect;
-      g.fillStyle = '#000';
-      g.fillRect(px(cw), py(cn), px(ce) - px(cw), py(cs) - py(cn));
+    // water across a peninsula, missing canals). Coverage = the cells' own
+    // M_COVR polygons; the bounds rect is a legacy fallback that over-claims.
+    if (depthGate?.waterPolys.length) {
+      if (depthGate.coveragePolys?.length) {
+        drawPolys(depthGate.coveragePolys, '#000');
+      } else if (depthGate.coverageRect) {
+        const [cw, cs, ce, cn] = depthGate.coverageRect;
+        g.fillStyle = '#000';
+        g.fillRect(px(cw), py(cn), px(ce) - px(cw), py(cs) - py(cn));
+      }
     }
     // …plus charted depth areas — authoritative water (channels invisible to
     // generalized shorelines, e.g. a canal between lakes, become routable)…

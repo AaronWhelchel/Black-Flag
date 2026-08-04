@@ -28,6 +28,7 @@ const S57_LAYERS = [
   [['OBSTRN'], 'obstructions'],
   [['WRECKS'], 'wrecks'],
   [['RESARE', 'resare'], 'restricted-areas'],
+  [['M_COVR', 'm_covr'], 'coverage'],   // the cell's own coverage polygons — where the chart claims authority
   // inland waterways (USACE IENC)
   [['wtwaxs', 'WTWAXS'], 'sailing-line'],   // waterway axis — the recommended track
   [['dismar', 'DISMAR'], 'mile-markers'],   // river distance marks

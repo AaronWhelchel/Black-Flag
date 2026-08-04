@@ -18,6 +18,7 @@ export const ENC_ROLES = [
   'buoys-lateral', 'buoys-special', 'lights', 'obstructions', 'wrecks', 'restricted-areas',
   // inland (USACE IENC)
   'sailing-line', 'mile-markers', 'locks', 'dams', 'bridges',
+  'coverage',
 ] as const;
 export type EncRole = (typeof ENC_ROLES)[number];
 
@@ -50,7 +51,7 @@ export class EncPack {
   private tiles = new Map<string, EncFeature[] | 'loading'>();
 
   static parseRole(name: string): EncRole | null {
-    const m = name.match(/-(depth-areas|depth-contours|coastline|soundings|buoys-lateral|buoys-special|lights|obstructions|wrecks|restricted-areas|sailing-line|mile-markers|locks|dams|bridges)\.pmtiles$/);
+    const m = name.match(/-(depth-areas|depth-contours|coastline|soundings|buoys-lateral|buoys-special|lights|obstructions|wrecks|restricted-areas|sailing-line|mile-markers|locks|dams|bridges|coverage)\.pmtiles$/);
     return (m ? (m[1] as EncRole) : null);
   }
 
@@ -394,9 +395,12 @@ export interface DepthGate {
   cautionPolys: number[][][][];
   /** set false to let the mask keep caution water open (relaxed pass) */
   blockCaution?: boolean;
-  /** [w,s,e,n] extent of charted depth coverage — inside it the chart is the
-   *  ONLY water authority (generalized base shorelines are wrong in exactly
-   *  the places that matter, e.g. showing false water across a peninsula) */
+  /** Where the chart claims authority. Preferred: the cells' own M_COVR
+   *  coverage polygons (CATCOV=1) — inside them the chart is the ONLY water
+   *  authority. A bounds RECT is the fallback for packs built before the
+   *  coverage layer existed; it over-claims (a bounds box includes water no
+   *  cell covers — that bug marooned a Key West start point as "land"). */
+  coveragePolys?: number[][][][];
   coverageRect?: [number, number, number, number];
   /** charted wrecks/obstructions shoaler than the vessel needs */
   shallowPoints: { lat: number; lon: number; radius_nm: number }[];
@@ -427,9 +431,19 @@ export interface DepthGate {
 export async function buildDepthGate(pack: EncPack, bb: BBox, neededM: number | null, offsetM = 0): Promise<DepthGate> {
   const gate: DepthGate = { shallowPolys: [], cautionPolys: [], shallowPoints: [], barrierLines: [], waterPolys: [], neededM, coverage: pack.covers(bb) };
   if (!gate.coverage) return gate;
-  const db = pack.boundsOf('depth-areas');
-  if (db) gate.coverageRect = db;
   const zHint = 12;
+  if (pack.roles.has('coverage')) {
+    const covr = await pack.ensure('coverage', bb, zHint);
+    const polys: number[][][][] = [];
+    for (const f of covr) {
+      if (f.props.CATCOV !== undefined && Number(f.props.CATCOV) !== 1) continue;   // 2 = "no coverage here"
+      eachPoly(f.geom, (rings) => polys.push(rings));
+    }
+    gate.coveragePolys = polys;
+  } else {
+    const db = pack.boundsOf('depth-areas');
+    if (db) gate.coverageRect = db;   // legacy packs without a coverage layer
+  }
   {
     const depare = await pack.ensure('depth-areas', bb, zHint);
     for (const f of depare) {
