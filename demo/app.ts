@@ -569,9 +569,10 @@ $('auto-route').addEventListener('click', () => {
     if (retriable(result) && chart.enc && neededFt) { result = await attempt(0.45, 0.35, 420, 220, false, false); if (result.ok) { cautioned = true; narrowWaters = true; } }
     if (retriable(result)) { result = await attempt(1.7, 1.5, 640, 300, true, false); if (result.ok) narrowWaters = true; }
     if (retriable(result) && chart.enc && neededFt) { result = await attempt(1.7, 1.5, 640, 300, false, false); if (result.ok) { cautioned = true; narrowWaters = true; } }
+    const dataLine = `<div class="sub" style="margin-top:6px;font-size:11px">Route data \u2014 chart: ${chart.enc ? esc(chart.enc.region) + (gated ? ' (depth-aware)' : ' (no coverage here)') : 'none'} \u00b7 OSM: ${coast ? `${coast.lines.length} coastline / ${coast.waterRings.length} waterbodies` : coastFailed ? '<b style="color:#a15c00">FAILED \u2014 lake/island shapes missing this attempt</b>' : 'none in area'} \u00b7 base shorelines + your ${hazardMarks().length} marks</div>`;
     if (!result.ok) {
       const depthNote = gated ? ` With charted depths on, water shallower than ${neededFt} ft (your draft + 2 ft) is off-limits \u2014 a shoal may be closing the direct path.` : '';
-      warnEl.innerHTML = `<div style="color:var(--bad);font-size:13px;font-weight:600">Auto-route: ${esc(result.reason)}</div><div class="sub" style="margin-top:4px">Shoreline here is generalized data — narrow channels may be invisible to it until chart packs land.${depthNote} Plot manually and drag waypoints; the hazard check still watches your route.</div>`;
+      warnEl.innerHTML = `<div style="color:var(--bad);font-size:13px;font-weight:600">Auto-route: ${esc(result.reason)}</div><div class="sub" style="margin-top:4px">Shoreline here is generalized data — narrow channels may be invisible to it until chart packs land.${depthNote} Plot manually and drag waypoints; the hazard check still watches your route.</div>${dataLine}`;
       return;
     }
     const { out, snapped } = result;
@@ -596,7 +597,7 @@ $('auto-route').addEventListener('click', () => {
       : chart.enc && !neededFt
         ? `A chart pack is loaded but your vessel has no draft set \u2014 add it in the Vessel tab and Auto-route becomes depth-aware.`
         : `Based on generalized shorelines${cachedWaterRings().length ? ' + detailed OSM waterbodies you\u2019ve searched' : ''}${islandNote ? ' \u00b7 ' + islandNote : ''} \u2014 not depth. Load an ENC chart pack for depth-aware routing.`;
-    warnEl.innerHTML = `<div style="color:var(--good);font-size:13px;font-weight:600">✓ Auto-routed through the water — ${nm} nm, ${chart.st.waypoints.length} waypoints, clear of land${gated ? ', charted shoals, and' : ' and'} your marked hazards${snapped ? ' (endpoint nudged to the nearest navigable water)' : ''}.</div>${coastWarn}${narrowWarn}${cautionLine}<div class="sub" style="margin-top:4px">${depthLine} Drag any waypoint to adjust; verify the water.</div>`;
+    warnEl.innerHTML = `<div style="color:var(--good);font-size:13px;font-weight:600">✓ Auto-routed through the water — ${nm} nm, ${chart.st.waypoints.length} waypoints, clear of land${gated ? ', charted shoals, and' : ' and'} your marked hazards${snapped ? ' (endpoint nudged to the nearest navigable water)' : ''}.</div>${coastWarn}${narrowWarn}${cautionLine}<div class="sub" style="margin-top:4px">${depthLine} Drag any waypoint to adjust; verify the water.</div>${dataLine}`;
   }, 30);
 });
 

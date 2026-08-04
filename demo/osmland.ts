@@ -83,7 +83,9 @@ export async function fetchIslands(bb: { minLat: number; maxLat: number; minLon:
   // cap the area — coastline stitching is for route-scale boxes, not oceans
   if ((bb.maxLat - bb.minLat) * (bb.maxLon - bb.minLon) > 4) return null;
   const bx = `${bb.minLat.toFixed(4)},${bb.minLon.toFixed(4)},${bb.maxLat.toFixed(4)},${bb.maxLon.toFixed(4)}`;
-  const q = `[out:json][timeout:12];(way["natural"="coastline"](${bx});way["natural"="water"](${bx});relation["natural"="water"](${bx}););out geom;`;
+  // 25 s server / 35 s client: a big lake relation (Patoka's full shoreline)
+  // is a multi-MB answer — the old 12 s budget could kill it silently
+  const q = `[out:json][timeout:25];(way["natural"="coastline"](${bx});way["natural"="water"](${bx});relation["natural"="water"](${bx}););out geom;`;
   let lastErr: unknown = new Error('overpass unavailable');
   for (const url of OVERPASS) {
     try {
@@ -91,7 +93,7 @@ export async function fetchIslands(bb: { minLat: number; maxLat: number; minLon:
         method: 'POST',
         body: 'data=' + encodeURIComponent(q),
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(35000),
       });
       if (!res.ok) { lastErr = new Error(`overpass ${res.status}`); continue; }   // 429 → try the mirror
       const js = await res.json();
