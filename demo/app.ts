@@ -17,6 +17,7 @@ import { autoRoute, estimateFetchLimitedWaves } from '../packages/core/src/index
 import type { HazardMark } from '../packages/core/src/route.js';
 import { SyncEngine } from '../packages/sync/src/index.js';
 import { makeStore, DeviceStore, savePackFiles, loadPackFiles } from './store.js';
+import { unzipSync } from 'fflate';
 import { EncPack, buildDepthGate, DepthGate } from './enc.js';
 import { fetchIslands, legCrossesCoast, CoastFetchResult } from './osmland.js';
 import { fetchTripWx, fetchTripTides, fetchWaterLevel, TripWx, TripTides, WaterLevel } from './tripdata.js';
@@ -528,7 +529,7 @@ $('auto-route').addEventListener('click', () => {
         const cellNm = (span * (1 + 2 * corePad) * 55) / res;
         gate.berth_nm = Math.max(0.015, 0.75 * cellNm);
       }
-      const mask = chart.buildWaterMask(bb, maskPx, cachedWaterRings(), hazards, gate, coast);
+      const mask = chart.buildWaterMask(bb, maskPx, [...cachedWaterRings(), ...(coast?.waterRings ?? [])], hazards, gate, coast);
       const out: typeof wps = [wps[0]];
       let snapped = false;
       for (let i = 0; i < wps.length - 1; i++) {
@@ -589,7 +590,20 @@ async function activatePack(files: { name: string; blob: Blob }[], announce: boo
 
 $('enc-files').addEventListener('change', async () => {
   const input = $('enc-files') as HTMLInputElement;
-  const files = Array.from(input.files ?? []).map(f => ({ name: f.name, blob: f as Blob }));
+  let files = Array.from(input.files ?? []).map(f => ({ name: f.name, blob: f as Blob }));
+  // a Black Flag pack ZIP loads directly — no unzipping homework
+  for (const z of files.filter(f => f.name.toLowerCase().endsWith('.zip'))) {
+    try {
+      const entries = unzipSync(new Uint8Array(await z.blob.arrayBuffer()));
+      for (const [name, data] of Object.entries(entries)) {
+        if (name.endsWith('.pmtiles') || name.endsWith('manifest.json')) {
+          const bytes = (data as Uint8Array).slice();
+          files.push({ name: name.split('/').pop()!, blob: new Blob([bytes.buffer as ArrayBuffer]) });
+        }
+      }
+    } catch { /* not a readable zip — ignored; loose files may still work */ }
+  }
+  files = files.filter(f => !f.name.toLowerCase().endsWith('.zip'));
   if (!files.length) return;
   try {
     await activatePack(files, true);

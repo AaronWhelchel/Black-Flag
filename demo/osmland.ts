@@ -21,13 +21,19 @@
  */
 
 export interface CoastFetchResult {
-  rings: number[][][];        // closed island rings [ [ [lon,lat], ... ] ]
+  rings: number[][][];        // closed island rings + lake ISLAND holes (land)
   lines: number[][][];        // every coastline chain incl. unclosed (barriers)
+  /** OSM water polygons (lakes, reservoirs, rivers-as-areas) — carved INTO
+   *  the mask as water. Inland lakes are natural=water in OSM, not coastline:
+   *  without these, a lake like Patoka only exists as a crude generalized
+   *  ring and endpoints near shore read as "not on navigable water". */
+  waterRings: number[][][];
   count: number;
   provenance: string;
 }
 
-interface OverpassWay { type: string; geometry?: { lat: number; lon: number }[] }
+interface OverpassMember { type: string; role?: string; geometry?: { lat: number; lon: number }[] }
+interface OverpassEl { type: string; tags?: Record<string, string>; geometry?: { lat: number; lon: number }[]; members?: OverpassMember[] }
 
 const cache: { bb: { minLat: number; maxLat: number; minLon: number; maxLon: number }; result: CoastFetchResult }[] = [];
 
@@ -76,7 +82,8 @@ export async function fetchIslands(bb: { minLat: number; maxLat: number; minLon:
   }
   // cap the area — coastline stitching is for route-scale boxes, not oceans
   if ((bb.maxLat - bb.minLat) * (bb.maxLon - bb.minLon) > 4) return null;
-  const q = `[out:json][timeout:12];way["natural"="coastline"](${bb.minLat.toFixed(4)},${bb.minLon.toFixed(4)},${bb.maxLat.toFixed(4)},${bb.maxLon.toFixed(4)});out geom;`;
+  const bx = `${bb.minLat.toFixed(4)},${bb.minLon.toFixed(4)},${bb.maxLat.toFixed(4)},${bb.maxLon.toFixed(4)}`;
+  const q = `[out:json][timeout:12];(way["natural"="coastline"](${bx});way["natural"="water"](${bx});relation["natural"="water"](${bx}););out geom;`;
   let lastErr: unknown = new Error('overpass unavailable');
   for (const url of OVERPASS) {
     try {
@@ -88,14 +95,34 @@ export async function fetchIslands(bb: { minLat: number; maxLat: number; minLon:
       });
       if (!res.ok) { lastErr = new Error(`overpass ${res.status}`); continue; }   // 429 → try the mirror
       const js = await res.json();
-      const ways: { lat: number; lon: number }[][] = (js?.elements ?? [])
-        .filter((e: OverpassWay) => e.type === 'way' && Array.isArray(e.geometry))
-        .map((e: OverpassWay) => e.geometry!);
-      const { rings, lines } = stitchCoast(ways);
+      const els: OverpassEl[] = js?.elements ?? [];
+      const coastWays: { lat: number; lon: number }[][] = [];
+      const waterWays: { lat: number; lon: number }[][] = [];
+      const holeWays: { lat: number; lon: number }[][] = [];
+      for (const e of els) {
+        if (e.type === 'way' && Array.isArray(e.geometry)) {
+          if (e.tags?.natural === 'water') waterWays.push(e.geometry);
+          else coastWays.push(e.geometry);
+        } else if (e.type === 'relation' && Array.isArray(e.members)) {
+          // multipolygon lakes (Patoka-class): outer members = water boundary,
+          // inner members = islands in the lake
+          for (const m of e.members) {
+            if (m.type !== 'way' || !Array.isArray(m.geometry)) continue;
+            (m.role === 'inner' ? holeWays : waterWays).push(m.geometry);
+          }
+        }
+      }
+      const coast = stitchCoast(coastWays);
+      const water = stitchCoast(waterWays);
+      const holes = stitchCoast(holeWays);
       const out: CoastFetchResult = {
-        rings, lines,
-        count: lines.length,
-        provenance: `islands/coastline: OpenStreetMap (ODbL, ${lines.length} coastline chain${lines.length === 1 ? '' : 's'} in route area)`,
+        rings: [...coast.rings, ...holes.rings],
+        // hole (lake-island) boundaries get the same barrier stroke as
+        // coastlines — otherwise a route can shave their corners by half a cell
+        lines: [...coast.lines, ...holes.lines],
+        waterRings: water.rings,
+        count: coast.lines.length + water.rings.length,
+        provenance: `OpenStreetMap (ODbL): ${coast.lines.length} coastline chain${coast.lines.length === 1 ? '' : 's'}, ${water.rings.length} waterbod${water.rings.length === 1 ? 'y' : 'ies'} in route area`,
       };
       cache.push({ bb, result: out });
       if (cache.length > 12) cache.shift();
