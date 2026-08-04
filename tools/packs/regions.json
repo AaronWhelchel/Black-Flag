@@ -57,6 +57,16 @@
         5
       ],
       "max_cells": 14
+    },
+    "in-patoka": {
+      "name": "Patoka Lake, Indiana — OSM shoreline pack (no government chart exists)",
+      "osmwater": true,
+      "bbox": [
+        -86.78,
+        38.36,
+        -86.55,
+        38.5
+      ]
     }
   }
 }

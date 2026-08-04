@@ -19,6 +19,7 @@ export const PACK_REGIONS: PackRegion[] = [
   { key: 'fl-keys-bimini', name: 'Upper Keys / Biscayne', bbox: [-80.6, 24.9, -79.9, 25.9] },
   { key: 'nj-manasquan', name: 'New Jersey — Sandy Hook to Barnegat', bbox: [-74.35, 39.9, -73.7, 40.55] },
   { key: 'ky-barkley-lakes', name: 'Kentucky Lake & Lake Barkley', bbox: [-88.6, 34.9, -87.2, 37.15] },
+  { key: 'in-patoka', name: 'Patoka Lake (OSM shoreline)', bbox: [-86.78, 38.36, -86.55, 38.5] },
 ];
 
 const BASE = 'https://raw.githubusercontent.com/AaronWhelchel/Black-Flag';

@@ -32,6 +32,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y gdal-bin tippecanoe zip unzip
       - run: node tools/packs/selftest.mjs
       - run: node tools/packs/catalog.selftest.mjs
+      - run: node tools/packs/osmwater.selftest.mjs
 
   build:
     needs: selftest
@@ -39,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false   # regions are independent — one failing must not cancel the rest
       matrix:
-        region: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.region)) || fromJSON('["nj-manasquan","fl-keys-bimini","ky-barkley-lakes","fl-key-west"]') }}
+        region: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.region)) || fromJSON('["nj-manasquan","fl-keys-bimini","ky-barkley-lakes","fl-key-west","in-patoka"]') }}
     steps:
       - uses: actions/checkout@v5
       - name: Install toolchain
@@ -47,7 +48,10 @@ jobs:
       - name: Discover cells (NOAA catalog for coastal regions, USACE scheme for rivers)
         run: |
           mkdir -p build
-          if node -e "process.exit(require('./tools/packs/regions.json').regions['${{ matrix.region }}'].ienc ? 0 : 1)"; then
+          if node -e "process.exit(require('./tools/packs/regions.json').regions['${{ matrix.region }}'].osmwater ? 0 : 1)"; then
+            echo "OSMWATER=1" >> "$GITHUB_ENV"
+            echo "osm-water region — no cells to discover" > build/cells.txt
+          elif node -e "process.exit(require('./tools/packs/regions.json').regions['${{ matrix.region }}'].ienc ? 0 : 1)"; then
             echo "BASE_URL=https://ienccloud.us/ienc/products/files/u37/ienc_s57" >> "$GITHUB_ENV"
             node tools/packs/ienc-cells.mjs "${{ matrix.region }}" > build/cells.txt
           else
@@ -58,6 +62,7 @@ jobs:
           fi
           echo "discovered $(wc -l < build/cells.txt) candidate cells:"; cat build/cells.txt
       - name: Download cells (NOAA / USACE, public domain)
+        if: env.OSMWATER != '1'
         run: |
           mkdir -p build/cells
           ok=0
@@ -76,7 +81,11 @@ jobs:
         # redirect (not pipe) so the exit code is preserved; log is published
         # to ci-log/<region> on failure
         run: |
-          node tools/packs/enc.mjs "${{ matrix.region }}" build/cells/*.zip > build/build.log 2>&1 || { cat build/build.log; exit 1; }
+          if [ "$OSMWATER" = "1" ]; then
+            node tools/packs/osmwater.mjs "${{ matrix.region }}" > build/build.log 2>&1 || { cat build/build.log; exit 1; }
+          else
+            node tools/packs/enc.mjs "${{ matrix.region }}" build/cells/*.zip > build/build.log 2>&1 || { cat build/build.log; exit 1; }
+          fi
           cat build/build.log
       - name: Checksum (Register R4 — verify before publish)
         run: |

@@ -87,15 +87,21 @@ export async function fetchIslands(bb: { minLat: number; maxLat: number; minLon:
   // is a multi-MB answer — the old 12 s budget could kill it silently
   const q = `[out:json][timeout:25];(way["natural"="coastline"](${bx});way["natural"="water"](${bx});relation["natural"="water"](${bx}););out geom;`;
   let lastErr: unknown = new Error('overpass unavailable');
+  const attempts: (() => Promise<Response>)[] = [];
   for (const url of OVERPASS) {
+    attempts.push(() => fetch(url, {
+      method: 'POST',
+      body: 'data=' + encodeURIComponent(q),
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      signal: AbortSignal.timeout(35000),
+    }));
+    // GET variant — some networks/extensions eat cross-origin POSTs
+    attempts.push(() => fetch(`${url}?data=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(35000) }));
+  }
+  for (const attempt of attempts) {
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        body: 'data=' + encodeURIComponent(q),
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        signal: AbortSignal.timeout(35000),
-      });
-      if (!res.ok) { lastErr = new Error(`overpass ${res.status}`); continue; }   // 429 → try the mirror
+      const res = await attempt();
+      if (!res.ok) { lastErr = new Error(`overpass ${res.status}`); continue; }
       const js = await res.json();
       const els: OverpassEl[] = js?.elements ?? [];
       const coastWays: { lat: number; lon: number }[][] = [];

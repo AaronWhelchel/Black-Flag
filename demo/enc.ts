@@ -452,6 +452,7 @@ export async function buildDepthGate(pack: EncPack, bb: BBox, neededM: number | 
     for (const f of depare) {
       eachPoly(f.geom, (rings) => gate.waterPolys.push(rings));
       if (neededM === null) continue;
+      if (f.props.UNSURV) continue;   // OSM-shoreline packs: water shape known, depth NOT charted — no depth claim either way
       const d1 = Number(f.props.DRVAL1), d2 = Number(f.props.DRVAL2);
       if (Number.isFinite(d2) && d2 + offsetM < neededM) {
         eachPoly(f.geom, (rings) => gate.shallowPolys.push(rings));      // hard: max depth below need
