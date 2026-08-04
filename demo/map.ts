@@ -233,6 +233,7 @@ export class Chart {
     blocked: { lat: number; lon: number; radius_nm: number }[],
     depthGate?: DepthGate | null,
     coast: { rings: number[][][]; lines: number[][][] } | null = null,
+    standoffPx = 1,
   ): { isWater: (lat: number, lon: number) => boolean } {
     const spanLon = bb.maxLon - bb.minLon, spanLat = bb.maxLat - bb.minLat;
     const aspect = spanLon / spanLat;
@@ -385,11 +386,22 @@ export class Chart {
       g.fill();
     }
     const data = g.getImageData(0, 0, W, H).data;
+    // Uniform shoreline standoff: a point only counts as water if a small
+    // neighborhood around it is water too (1-px erosion, ~10-25 m depending
+    // on mask scale). Routes stop hugging ANY land edge — beach, chart line,
+    // OSM island — to the exact pixel, without per-source berth bookkeeping.
+    // standoffPx 0 = raw connectivity (narrow channels); the route ladder
+    // retries raw when the standoff mask finds no path, and says so.
+    const r = standoffPx;
+    const wet = (x: number, y: number) => {
+      if (x < 0 || y < 0 || x >= W || y >= H) return false;
+      return data[(y * W + x) * 4] > 127;
+    };
     return {
       isWater: (lat: number, lon: number) => {
         const x = Math.round(px(lon)), y = Math.round(py(lat));
-        if (x < 0 || y < 0 || x >= W || y >= H) return false;
-        return data[(y * W + x) * 4] > 127;
+        if (!wet(x, y)) return false;
+        return r === 0 || (wet(x - r, y) && wet(x + r, y) && wet(x, y - r) && wet(x, y + r));
       },
     };
   }

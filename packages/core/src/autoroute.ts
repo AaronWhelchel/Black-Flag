@@ -160,10 +160,15 @@ export function autoRoute(
   cells.reverse();
   const clearLine = (i: number, j: number) => {
     const x0 = i % W, y0 = Math.floor(i / W), x1 = j % W, y1 = Math.floor(j / W);
-    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 2;
+    // Validate the segment against the CONTINUOUS mask, not the coarse grid:
+    // the caller's isWalkable is finer than the routing grid, and a sliver of
+    // land between two walkable cell centers is exactly what makes a smoothed
+    // leg visually touch a beach. Sub-cell sampling at ~¼ cell.
+    const steps = Math.max(4, Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 4);
     for (let s = 1; s < steps; s++) {
-      const x = Math.round(x0 + ((x1 - x0) * s) / steps), y = Math.round(y0 + ((y1 - y0) * s) / steps);
-      if (!walk[y * W + x]) return false;
+      const xf = x0 + ((x1 - x0) * s) / steps, yf = y0 + ((y1 - y0) * s) / steps;
+      const p = toLatLon(xf, yf);
+      if (!isWalkable(p.lat, p.lon)) return false;
     }
     return true;
   };
@@ -178,8 +183,8 @@ export function autoRoute(
     const p = toLatLon(i % W, Math.floor(i / W));
     return {
       name: n === 0 ? 'Start' : n === keep.length - 1 ? 'End' : `A${n}`,
-      lat: Math.round(p.lat * 10000) / 10000,
-      lon: Math.round(p.lon * 10000) / 10000,
+      lat: Math.round(p.lat * 100000) / 100000,   // 5 dp ≈ 1 m — 4 dp (~11 m) could round a point onto the beach
+      lon: Math.round(p.lon * 100000) / 100000,
     };
   });
   // Pin exact endpoints when they weren't snapped.

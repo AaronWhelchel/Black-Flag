@@ -515,7 +515,7 @@ $('auto-route').addEventListener('click', () => {
     /** One search attempt at a given breadth. A long headland can force a
      *  detour far outside the direct corridor, so if the tight search finds
      *  no path we retry once over a much wider area before saying no. */
-    const attempt = async (maskPadF: number, corePad: number, maskPx: number, res: number, blockCaution = true) => {
+    const attempt = async (maskPadF: number, corePad: number, maskPx: number, res: number, blockCaution = true, standoff = true) => {
       const padD = span * maskPadF;
       const bb = { minLat: minLat - padD, maxLat: maxLat + padD, minLon: minLon - padD, maxLon: maxLon + padD };
       let gate: DepthGate | null = null;
@@ -529,7 +529,7 @@ $('auto-route').addEventListener('click', () => {
         const cellNm = (span * (1 + 2 * corePad) * 55) / res;
         gate.berth_nm = Math.max(0.015, 0.75 * cellNm);
       }
-      const mask = chart.buildWaterMask(bb, maskPx, [...cachedWaterRings(), ...(coast?.waterRings ?? [])], hazards, gate, coast);
+      const mask = chart.buildWaterMask(bb, maskPx, [...cachedWaterRings(), ...(coast?.waterRings ?? [])], hazards, gate, coast, standoff ? 1 : 0);
       const out: typeof wps = [wps[0]];
       let snapped = false;
       for (let i = 0; i < wps.length - 1; i++) {
@@ -541,13 +541,17 @@ $('auto-route').addEventListener('click', () => {
       return { ok: true as const, out, snapped };
     };
 
-    // Attempt ladder: guaranteed-depth water only, then (with a warning)
-    // allow charted-but-not-guaranteed water; each at two search breadths.
+    // Attempt ladder: shoreline standoff + guaranteed-depth water first, then
+    // relax caution water (warned), then drop the standoff (narrow channels —
+    // warned), then widen the search; honesty at every rung.
+    let narrowWaters = false;
     const retriable = (r: { ok: boolean; reason?: string }) => !r.ok && /no navigable path|not on navigable water/.test(r.reason ?? '');
-    let result = await attempt(0.45, 0.35, 420, 220, true);
-    if (retriable(result) && chart.enc && neededFt) { result = await attempt(0.45, 0.35, 420, 220, false); if (result.ok) cautioned = true; }
-    if (retriable(result)) result = await attempt(1.7, 1.5, 640, 300, true);
-    if (retriable(result) && chart.enc && neededFt) { result = await attempt(1.7, 1.5, 640, 300, false); if (result.ok) cautioned = true; }
+    let result = await attempt(0.45, 0.35, 420, 220, true, true);
+    if (retriable(result) && chart.enc && neededFt) { result = await attempt(0.45, 0.35, 420, 220, false, true); if (result.ok) cautioned = true; }
+    if (retriable(result)) { result = await attempt(0.45, 0.35, 420, 220, true, false); if (result.ok) narrowWaters = true; }
+    if (retriable(result) && chart.enc && neededFt) { result = await attempt(0.45, 0.35, 420, 220, false, false); if (result.ok) { cautioned = true; narrowWaters = true; } }
+    if (retriable(result)) { result = await attempt(1.7, 1.5, 640, 300, true, false); if (result.ok) narrowWaters = true; }
+    if (retriable(result) && chart.enc && neededFt) { result = await attempt(1.7, 1.5, 640, 300, false, false); if (result.ok) { cautioned = true; narrowWaters = true; } }
     if (!result.ok) {
       const depthNote = gated ? ` With charted depths on, water shallower than ${neededFt} ft (your draft + 2 ft) is off-limits \u2014 a shoal may be closing the direct path.` : '';
       warnEl.innerHTML = `<div style="color:var(--bad);font-size:13px;font-weight:600">Auto-route: ${esc(result.reason)}</div><div class="sub" style="margin-top:4px">Shoreline here is generalized data — narrow channels may be invisible to it until chart packs land.${depthNote} Plot manually and drag waypoints; the hazard check still watches your route.</div>`;
@@ -561,6 +565,9 @@ $('auto-route').addEventListener('click', () => {
     onRouteChange();
     chart.render();
     const nm = routeDistanceNm(chart.st.waypoints);
+    const narrowWarn = narrowWaters
+      ? `<div style="color:#a15c00;font-size:12.5px;font-weight:600;margin-top:4px">\u26a0 Narrow waters: the shoreline standoff had to be relaxed to find a path \u2014 the line runs close to the banks. Mind your distance off.</div>`
+      : '';
     const coastWarn = coastFailed
       ? `<div style="color:#a15c00;font-size:12.5px;font-weight:600;margin-top:4px">\u26a0 Island data couldn\u2019t be loaded (OpenStreetMap unreachable) \u2014 this route only avoids coarse shorelines and your marks. Small islands may be missing: verify the line visually, or try Auto-route again in a minute.</div>`
       : '';
@@ -572,7 +579,7 @@ $('auto-route').addEventListener('click', () => {
       : chart.enc && !neededFt
         ? `A chart pack is loaded but your vessel has no draft set \u2014 add it in the Vessel tab and Auto-route becomes depth-aware.`
         : `Based on generalized shorelines${cachedWaterRings().length ? ' + detailed OSM waterbodies you\u2019ve searched' : ''}${islandNote ? ' \u00b7 ' + islandNote : ''} \u2014 not depth. Load an ENC chart pack for depth-aware routing.`;
-    warnEl.innerHTML = `<div style="color:var(--good);font-size:13px;font-weight:600">✓ Auto-routed through the water — ${nm} nm, ${chart.st.waypoints.length} waypoints, clear of land${gated ? ', charted shoals, and' : ' and'} your marked hazards${snapped ? ' (endpoint nudged to the nearest navigable water)' : ''}.</div>${coastWarn}${cautionLine}<div class="sub" style="margin-top:4px">${depthLine} Drag any waypoint to adjust; verify the water.</div>`;
+    warnEl.innerHTML = `<div style="color:var(--good);font-size:13px;font-weight:600">✓ Auto-routed through the water — ${nm} nm, ${chart.st.waypoints.length} waypoints, clear of land${gated ? ', charted shoals, and' : ' and'} your marked hazards${snapped ? ' (endpoint nudged to the nearest navigable water)' : ''}.</div>${coastWarn}${narrowWarn}${cautionLine}<div class="sub" style="margin-top:4px">${depthLine} Drag any waypoint to adjust; verify the water.</div>`;
   }, 30);
 });
 

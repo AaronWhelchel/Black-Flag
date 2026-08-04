@@ -71,7 +71,7 @@ export class EncPack {
       const pm = new PMTiles(new BlobSource(f.blob, f.name) as any);
       const h = await pm.getHeader();
       pack.roles.set(role, { pm, minZoom: h.minZoom, maxZoom: h.maxZoom, bounds: [h.minLon, h.minLat, h.maxLon, h.maxLat] });
-      if (!pack.region) pack.region = f.name.replace(/-(depth-areas|.*)\.pmtiles$/, '');
+      if (!pack.region) pack.region = f.name.replace(/-(depth-areas|depth-contours|coastline|soundings|buoys-lateral|buoys-special|lights|obstructions|wrecks|restricted-areas|sailing-line|mile-markers|locks|dams|bridges|coverage)\.pmtiles$/, '');
     }
     if (pack.roles.size === 0) throw new Error('no recognizable .pmtiles layers in the selected files');
     return pack;
@@ -208,7 +208,7 @@ export function drawEnc(pack: EncPack, ctx: CanvasRenderingContext2D, project: P
     }
   }
 
-  if (zoom >= 8.5) {
+  if (zoom >= 11) {
     const { feats, complete: c } = pack.collect('depth-contours', bb, zoom);
     complete &&= c;
     ctx.strokeStyle = satDrawn ? 'rgba(200,225,255,0.55)' : 'rgba(110,160,210,0.55)';
@@ -216,21 +216,24 @@ export function drawEnc(pack: EncPack, ctx: CanvasRenderingContext2D, project: P
     for (const f of feats) eachLine(f.geom, (l) => { path(l); ctx.stroke(); });
   }
 
-  // restricted areas — magenta dashed border, faint fill
-  if (zoom >= 8) {
+  // restricted areas — quiet fill; the dashed border only at close zoom
+  // (stroking tile-clipped polygons at low zoom paints the clip edges as a
+  // false magenta grid across the chart)
+  if (zoom >= 9) {
     const { feats, complete: c } = pack.collect('restricted-areas', bb, zoom);
     complete &&= c;
     for (const f of feats) {
       eachRing(f.geom, (ring) => {
         path(ring); ctx.closePath();
-        ctx.fillStyle = 'rgba(200, 60, 180, 0.08)'; ctx.fill();
-        ctx.strokeStyle = 'rgba(200, 60, 180, 0.8)'; ctx.lineWidth = 1.4; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(200, 60, 180, 0.06)'; ctx.fill();
+        if (zoom >= 11.5) { ctx.strokeStyle = 'rgba(200, 60, 180, 0.5)'; ctx.lineWidth = 1.2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]); }
       });
     }
   }
 
-  // soundings — spot depths in feet (deduped across tile buffers)
-  if (zoom >= 9.5) {
+  // soundings — spot depths in feet, only when zoomed right in (they are
+  // R&D noise at planning scale; captains want them approaching a spot)
+  if (zoom >= 12) {
     const { feats, complete: c } = pack.collect('soundings', bb, zoom);
     complete &&= c;
     const seen = new Set<string>();
@@ -335,8 +338,8 @@ export function drawEnc(pack: EncPack, ctx: CanvasRenderingContext2D, project: P
     }
   }
 
-  // point symbols
-  if (zoom >= 8.5) {
+  // point symbols — close zoom only; at planning scale they are clutter
+  if (zoom >= 10.5) {
     const sym = (role: EncRole, draw: (x: number, y: number, p: Record<string, any>) => void) => {
       const { feats, complete: c } = pack.collect(role, bb, zoom);
       complete &&= c;
