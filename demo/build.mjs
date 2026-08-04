@@ -10,7 +10,7 @@ const out = await build({
   write: false,
   format: 'iife',
   target: 'es2020',
-  minify: false,
+  minify: true,   // keeps the single-file demo under desktop-artifact size limits
 });
 const js = out.outputFiles[0].text;
 const html = readFileSync(join(here, 'template.html'), 'utf8')
