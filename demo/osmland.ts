@@ -1,37 +1,42 @@
 /**
- * OSM island fetch — the honest answer to "no dataset ships every island."
+ * OSM coastline fetch — the honest answer to "no dataset ships every island."
  * Generalized base shorelines miss small islands entirely (Upper Matecumbe
  * is invisible to Natural Earth at any scale we can bundle), and a route
  * that crosses land is worse than no route. OpenStreetMap's coastline layer
  * has essentially every island on earth; at auto-route time Black Flag pulls
- * the coastline ways inside the route's search box from the Overpass API and
- * stitches them into island rings the water mask can treat as land.
+ * the coastline ways inside the route's search box from the Overpass API.
+ *
+ * Two shapes come back and BOTH matter:
+ * - closed rings (islands that fit in the box) — masked as filled land;
+ * - open chains (an island BIGGER than the box, or one mapped as several
+ *   ways of which only some intersect the box) — a coastline is uncrossable
+ *   whether or not we can see it close, so open chains are masked as
+ *   blocked LINES. Dropping them was the v1.1 bug: a route crossed Windley
+ *   Key because its ring never closed inside the search box.
  *
  * Register SRC-12 (provisional): ODbL, attribution rendered with the route
  * basis; public Overpass instance is rate-limited — fine for per-route
  * fetches, production wants a self-hosted instance. Failure is honest: no
  * reply → route computes without island data and SAYS SO.
- *
- * Only rings that close fully inside the box are kept — mainland segments
- * (already handled by the base shorelines) cross the box edge and never
- * close, so they drop out naturally.
  */
 
-export interface IslandFetchResult {
-  rings: number[][][];        // [ [ [lon,lat], ... ] ] closed island rings
+export interface CoastFetchResult {
+  rings: number[][][];        // closed island rings [ [ [lon,lat], ... ] ]
+  lines: number[][][];        // every coastline chain incl. unclosed (barriers)
   count: number;
   provenance: string;
 }
 
 interface OverpassWay { type: string; geometry?: { lat: number; lon: number }[] }
 
-const cache = new Map<string, IslandFetchResult>();
+const cache = new Map<string, CoastFetchResult>();
 
-/** Stitch coastline way segments into closed rings by matching endpoints. */
-export function stitchRings(ways: { lat: number; lon: number }[][]): number[][][] {
+/** Stitch coastline way segments into chains; closed ones become rings. */
+export function stitchCoast(ways: { lat: number; lon: number }[][]): { rings: number[][][]; lines: number[][][] } {
   const key = (p: { lat: number; lon: number }) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`;
   const segs = ways.filter(w => w.length >= 2).map(w => [...w]);
   const rings: number[][][] = [];
+  const lines: number[][][] = [];
   while (segs.length) {
     let chain = segs.shift()!;
     let extended = true;
@@ -47,20 +52,18 @@ export function stitchRings(ways: { lat: number; lon: number }[][]): number[][][
         if (key(s[0]) === head) { chain = s.slice(1).reverse().concat(chain); segs.splice(i, 1); extended = true; break; }
       }
     }
-    // keep only rings that actually closed — open chains are mainland
-    // segments clipped by the bbox, already covered by base shorelines
-    if (chain.length >= 4 && key(chain[0]) === key(chain[chain.length - 1])) {
-      rings.push(chain.map(p => [p.lon, p.lat]));
-    }
+    const coords = chain.map(p => [p.lon, p.lat]);
+    lines.push(coords);
+    if (chain.length >= 4 && key(chain[0]) === key(chain[chain.length - 1])) rings.push(coords);
   }
-  return rings;
+  return { rings, lines };
 }
 
-/** Fetch island rings inside a bbox. Times out fast and fails honest-empty. */
-export async function fetchIslands(bb: { minLat: number; maxLat: number; minLon: number; maxLon: number }): Promise<IslandFetchResult | null> {
+/** Fetch coastline for a bbox. Times out fast and fails honest-empty. */
+export async function fetchIslands(bb: { minLat: number; maxLat: number; minLon: number; maxLon: number }): Promise<CoastFetchResult | null> {
   const k = [bb.minLat, bb.minLon, bb.maxLat, bb.maxLon].map(v => v.toFixed(3)).join(',');
   if (cache.has(k)) return cache.get(k)!;
-  // cap the area — island stitching is for route-scale boxes, not oceans
+  // cap the area — coastline stitching is for route-scale boxes, not oceans
   if ((bb.maxLat - bb.minLat) * (bb.maxLon - bb.minLon) > 4) return null;
   const q = `[out:json][timeout:12];way["natural"="coastline"](${bb.minLat.toFixed(4)},${bb.minLon.toFixed(4)},${bb.maxLat.toFixed(4)},${bb.maxLon.toFixed(4)});out geom;`;
   const res = await fetch('https://overpass-api.de/api/interpreter', {
@@ -74,12 +77,34 @@ export async function fetchIslands(bb: { minLat: number; maxLat: number; minLon:
   const ways: { lat: number; lon: number }[][] = (js?.elements ?? [])
     .filter((e: OverpassWay) => e.type === 'way' && Array.isArray(e.geometry))
     .map((e: OverpassWay) => e.geometry!);
-  const rings = stitchRings(ways);
-  const out: IslandFetchResult = {
-    rings,
-    count: rings.length,
-    provenance: `islands: OpenStreetMap coastline (ODbL, ${rings.length} island${rings.length === 1 ? '' : 's'} in route area)`,
+  const { rings, lines } = stitchCoast(ways);
+  const out: CoastFetchResult = {
+    rings, lines,
+    count: lines.length,
+    provenance: `islands/coastline: OpenStreetMap (ODbL, ${lines.length} coastline chain${lines.length === 1 ? '' : 's'} in route area)`,
   };
   cache.set(k, out);
   return out;
+}
+
+/** Does the leg a→b cross any coastline chain (or start/end on island land)?
+ *  Used to flag a hand-plotted route immediately, before any auto-routing. */
+export function legCrossesCoast(
+  a: { lat: number; lon: number }, b: { lat: number; lon: number },
+  coast: { rings: number[][][]; lines: number[][][] },
+): boolean {
+  const inter = (p1: number[], p2: number[], p3: number[], p4: number[]) => {
+    const d = (p2[0] - p1[0]) * (p4[1] - p3[1]) - (p2[1] - p1[1]) * (p4[0] - p3[0]);
+    if (Math.abs(d) < 1e-12) return false;
+    const t = ((p3[0] - p1[0]) * (p4[1] - p3[1]) - (p3[1] - p1[1]) * (p4[0] - p3[0])) / d;
+    const u = ((p3[0] - p1[0]) * (p2[1] - p1[1]) - (p3[1] - p1[1]) * (p2[0] - p1[0])) / d;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+  };
+  const A = [a.lon, a.lat], B = [b.lon, b.lat];
+  for (const line of coast.lines) {
+    for (let i = 0; i < line.length - 1; i++) {
+      if (inter(A, B, line[i], line[i + 1])) return true;
+    }
+  }
+  return false;
 }

@@ -18,7 +18,7 @@ import type { HazardMark } from '../packages/core/src/route.js';
 import { SyncEngine } from '../packages/sync/src/index.js';
 import { makeStore, DeviceStore, savePackFiles, loadPackFiles } from './store.js';
 import { EncPack, buildDepthGate, DepthGate } from './enc.js';
-import { fetchIslands } from './osmland.js';
+import { fetchIslands, legCrossesCoast, CoastFetchResult } from './osmland.js';
 import { fetchTripWx, fetchTripTides, fetchWaterLevel, TripWx, TripTides, WaterLevel } from './tripdata.js';
 // @ts-ignore — JSON bundled by esbuild
 import hydroPack from './packs/hydro-east-na.json';
@@ -465,6 +465,7 @@ function onRouteChange() {
   const nm = chart.st.waypoints.length >= 2 ? routeDistanceNm(chart.st.waypoints) : 0;
   $('route-readout').textContent = nm ? `${nm} nm plotted` : '';
   checkRouteSafety();
+  scheduleRouteCoast();
   renderTrip();
   if (($('scenario') as HTMLSelectElement | null) && tab === 'explore') scheduleTripData();
   if (!restoring) {
@@ -495,12 +496,15 @@ $('auto-route').addEventListener('click', () => {
     // Small islands don't exist in bundled shorelines — pull them from OSM
     // for the widest search box so every attempt sees them. Failure is
     // honest: route computes without them and the basis line says so.
-    let islands: number[][][] = [];
+    let coast: CoastFetchResult | null = null;
     {
-      const padW = span * 1.7;
+      // fetch box wider than the WIDEST routing grid (1.5-pad retry), so a
+      // chain clipped by the box ends beyond anywhere the router can reach —
+      // rounding a clip artifact would cross the real island beyond it
+      const padW = span * 2.2;
       try {
-        const isl = await fetchIslands({ minLat: minLat - padW, maxLat: maxLat + padW, minLon: minLon - padW, maxLon: maxLon + padW });
-        if (isl) { islands = isl.rings; islandNote = isl.provenance; }
+        coast = await fetchIslands({ minLat: minLat - padW, maxLat: maxLat + padW, minLon: minLon - padW, maxLon: maxLon + padW });
+        if (coast) islandNote = coast.provenance;
       } catch {
         islandNote = 'island data unreachable right now — small islands may be missing from this basis; verify the line visually';
       }
@@ -523,7 +527,7 @@ $('auto-route').addEventListener('click', () => {
         const cellNm = (span * (1 + 2 * corePad) * 55) / res;
         gate.berth_nm = Math.max(0.015, 0.75 * cellNm);
       }
-      const mask = chart.buildWaterMask(bb, maskPx, cachedWaterRings(), hazards, gate, islands);
+      const mask = chart.buildWaterMask(bb, maskPx, cachedWaterRings(), hazards, gate, coast);
       const out: typeof wps = [wps[0]];
       let snapped = false;
       for (let i = 0; i < wps.length - 1; i++) {
@@ -643,6 +647,25 @@ function hazardMarks(): HazardMark[] {
     .map(o => ({ id: o.id, label: o.label, kind: o.kind, lat: o.lat, lon: o.lon }));
 }
 
+// Coastline cache for the CURRENT route area — lets a hand-plotted line be
+// flagged the moment it crosses an island, before any auto-routing.
+let routeCoast: CoastFetchResult | null = null;
+let coastSeq = 0;
+let coastTimer: any = null;
+async function refreshRouteCoast() {
+  const wps = chart.st.waypoints;
+  if (wps.length < 2) return;
+  let mnLa = 90, mxLa = -90, mnLo = 180, mxLo = -180;
+  for (const w of wps) { mnLa = Math.min(mnLa, w.lat); mxLa = Math.max(mxLa, w.lat); mnLo = Math.min(mnLo, w.lon); mxLo = Math.max(mxLo, w.lon); }
+  const pad = Math.max(mxLa - mnLa, mxLo - mnLo, 0.02) * 0.6;
+  const seq = ++coastSeq;
+  try {
+    const c = await fetchIslands({ minLat: mnLa - pad, maxLat: mxLa + pad, minLon: mnLo - pad, maxLon: mxLo + pad });
+    if (seq === coastSeq && c) { routeCoast = c; checkRouteSafety(); }
+  } catch { /* unreachable — the auto-route basis line reports it */ }
+}
+function scheduleRouteCoast() { clearTimeout(coastTimer); coastTimer = setTimeout(refreshRouteCoast, 700); }
+
 function checkRouteSafety() {
   const wps = chart.st.waypoints;
   const warnEl = $('route-warnings');
@@ -650,18 +673,28 @@ function checkRouteSafety() {
   const hazards = hazardMarks();
   const conflicts = hazards.flatMap(h =>
     routeConflicts(wps, [h], HAZARD_CLEARANCE_NM[h.kind] ?? 0.05));
-  chart.st.dangerLegs = [...new Set(conflicts.map(c => c.leg_index))];
-  if (!conflicts.length) { warnEl.style.display = 'none'; chart.render(); return; }
+  // legs that cross known coastline — a boat can't drive across an island
+  const landLegs: number[] = [];
+  if (routeCoast) {
+    for (let i = 0; i < wps.length - 1; i++) {
+      if (legCrossesCoast(wps[i], wps[i + 1], routeCoast)) landLegs.push(i);
+    }
+  }
+  chart.st.dangerLegs = [...new Set([...conflicts.map(c => c.leg_index), ...landLegs])];
+  if (!conflicts.length && !landLegs.length) { warnEl.style.display = 'none'; chart.render(); return; }
   const yd = (nm: number) => Math.round(nm * 2025);
   warnEl.style.display = 'block';
   warnEl.innerHTML =
+    (landLegs.length
+      ? `<div style="color:var(--bad);font-size:13px;font-weight:600">⚠ ${landLegs.length === 1 ? `Leg ${landLegs[0] + 1} crosses` : `${landLegs.length} legs cross`} land (OSM coastline) — hit ⚓ Auto-route to go around, or drag the waypoints.</div>`
+      : '') +
     conflicts.slice(0, 4).map(c =>
       `<div style="color:var(--bad);font-size:13px;font-weight:600">⚠ Route passes ${yd(c.dist_nm)} yd from “${esc(c.hazard.label)}” (${esc(c.hazard.kind)})</div>`).join('') +
-    `<div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+    (conflicts.length ? `<div style="margin-top:8px;display:flex;gap:8px;align-items:center">
        <button class="btn primary" id="detour-btn">Route around hazards</button>
        <span class="sub">detours around your marks — land & depth come with chart packs; verify the water</span>
-     </div>`;
-  $('detour-btn').addEventListener('click', applyDetour);
+     </div>` : '');
+  if (conflicts.length) $('detour-btn').addEventListener('click', applyDetour);
   chart.render();
 }
 

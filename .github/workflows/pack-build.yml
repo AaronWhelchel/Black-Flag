@@ -27,7 +27,7 @@ jobs:
     # catalog. A broken pipeline never touches real cells.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y gdal-bin tippecanoe zip unzip
       - run: node tools/packs/selftest.mjs
@@ -37,10 +37,11 @@ jobs:
     needs: selftest
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false   # regions are independent — one failing must not cancel the rest
       matrix:
         region: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.region)) || fromJSON('["nj-manasquan","fl-keys-bimini","ky-barkley-lakes"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y gdal-bin tippecanoe zip unzip
       - name: Discover cells (NOAA catalog for coastal regions, USACE scheme for rivers)
