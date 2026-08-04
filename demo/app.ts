@@ -529,14 +529,28 @@ $('auto-route').addEventListener('click', () => {
         const cellNm = (span * (1 + 2 * corePad) * 55) / res;
         gate.berth_nm = Math.max(0.015, 0.75 * cellNm);
       }
-      const mask = chart.buildWaterMask(bb, maskPx, [...cachedWaterRings(), ...(coast?.waterRings ?? [])], hazards, gate, coast, standoff ? 1 : 0);
+      // Preferred shore clearance (captain-set, nm) → mask pixels for THIS
+      // mask's scale. Seamanlike: run offshore, not along the sand.
+      const stdNm = Math.max(0, +(($('standoff-nm') as HTMLInputElement)?.value ?? 0.1) || 0);
+      const latMid = (bb.minLat + bb.maxLat) / 2;
+      const pxPerNm = (maskPx / ((bb.maxLon - bb.minLon) * 60 * Math.cos((latMid * Math.PI) / 180)));
+      const stdPx = standoff ? Math.max(1, Math.round(stdNm * pxPerNm)) : 0;
+      const mask = chart.buildWaterMask(bb, maskPx, [...cachedWaterRings(), ...(coast?.waterRings ?? [])], hazards, gate, coast, stdPx);
       const out: typeof wps = [wps[0]];
       let snapped = false;
       for (let i = 0; i < wps.length - 1; i++) {
         const r = autoRoute(wps[i], wps[i + 1], mask.isWater, { resolution: res, pad: corePad });
         if (!r.ok) return { ok: false as const, reason: r.reason ?? 'failed' };
         snapped = snapped || !!r.snapped_start || !!r.snapped_end;
-        out.push(...r.waypoints.slice(1, -1), wps[i + 1]);
+        // keep snapped points as standoff entry/exit anchors: the captain's
+        // endpoint stays where placed (dock, beach), with a short approach
+        // leg out to the standoff line
+        out.push(
+          ...(r.snapped_start ? [r.waypoints[0]] : []),
+          ...r.waypoints.slice(1, -1),
+          ...(r.snapped_end ? [r.waypoints[r.waypoints.length - 1]] : []),
+          wps[i + 1],
+        );
       }
       return { ok: true as const, out, snapped };
     };

@@ -390,9 +390,11 @@ export class Chart {
     // neighborhood around it is water too (1-px erosion, ~10-25 m depending
     // on mask scale). Routes stop hugging ANY land edge — beach, chart line,
     // OSM island — to the exact pixel, without per-source berth bookkeeping.
-    // standoffPx 0 = raw connectivity (narrow channels); the route ladder
-    // retries raw when the standoff mask finds no path, and says so.
+    // standoffPx = preferred shore clearance in mask pixels (0 = raw
+    // connectivity for narrow channels — the ladder retries raw and says so).
+    // 8-direction ring sampling ≈ "am I at least this far from any land".
     const r = standoffPx;
+    const d = Math.round(r * 0.7071);
     const wet = (x: number, y: number) => {
       if (x < 0 || y < 0 || x >= W || y >= H) return false;
       return data[(y * W + x) * 4] > 127;
@@ -401,7 +403,9 @@ export class Chart {
       isWater: (lat: number, lon: number) => {
         const x = Math.round(px(lon)), y = Math.round(py(lat));
         if (!wet(x, y)) return false;
-        return r === 0 || (wet(x - r, y) && wet(x + r, y) && wet(x, y - r) && wet(x, y + r));
+        if (r === 0) return true;
+        return wet(x - r, y) && wet(x + r, y) && wet(x, y - r) && wet(x, y + r)
+            && wet(x - d, y - d) && wet(x + d, y - d) && wet(x - d, y + d) && wet(x + d, y + d);
       },
     };
   }
