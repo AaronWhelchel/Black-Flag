@@ -22,7 +22,12 @@ export const ENC_ROLES = [
 ] as const;
 export type EncRole = (typeof ENC_ROLES)[number];
 
-export interface EncFeature { geom: { type: string; coordinates: any }; props: Record<string, any> }
+export interface EncFeature { geom: { type: string; coordinates: any }; props: Record<string, any>; tb?: [number, number, number, number] }
+/** A polygon plus the bounds of the tile it came from — consumers paint it
+ *  through that window. Cutting concave geometry with Sutherland–Hodgman
+ *  BRIDGED notches (phantom water straight across a Patoka peninsula);
+ *  painting uncut geometry through a per-tile clip rect is exact. */
+export interface GatePoly { rings: number[][][]; tb?: [number, number, number, number] }
 export interface BBox { minLat: number; maxLat: number; minLon: number; maxLon: number }
 
 /** pmtiles Source over a local Blob/File — range reads, nothing loaded whole. */
@@ -32,48 +37,6 @@ class BlobSource {
   async getBytes(offset: number, length: number) {
     return { data: await this.blob.slice(offset, offset + length).arrayBuffer() };
   }
-}
-
-/** Sutherland–Hodgman: clip a ring against one axis-aligned half-plane. */
-function clipRingHalf(ring: number[][], axis: 0 | 1, bound: number, keepBelow: boolean): number[][] {
-  const out: number[][] = [];
-  const inside = (p: number[]) => (keepBelow ? p[axis] <= bound : p[axis] >= bound);
-  for (let i = 0; i < ring.length; i++) {
-    const a = ring[i], b = ring[(i + 1) % ring.length];
-    const ia = inside(a), ib = inside(b);
-    if (ia) out.push(a);
-    if (ia !== ib) {
-      const t = (bound - a[axis]) / (b[axis] - a[axis]);
-      out.push(axis === 0 ? [bound, a[1] + (b[1] - a[1]) * t] : [a[0] + (b[0] - a[0]) * t, bound]);
-    }
-  }
-  return out;
-}
-function clipRingToRect(ring: number[][], w: number, s: number, e: number, nn: number): number[][] | null {
-  let r = ring;
-  r = clipRingHalf(r, 0, e, true); if (r.length < 3) return null;
-  r = clipRingHalf(r, 0, w, false); if (r.length < 3) return null;
-  r = clipRingHalf(r, 1, nn, true); if (r.length < 3) return null;
-  r = clipRingHalf(r, 1, s, false); if (r.length < 3) return null;
-  return r;
-}
-/** Clip polygon geometries to a rect; lines/points pass through (stroked
- *  barriers overlapping tile buffers is harmless — phantom FILL is not). */
-function clipGeomToRect(geom: { type: string; coordinates: any }, w: number, s: number, e: number, n: number): { type: string; coordinates: any } | null {
-  if (geom.type === 'Polygon') {
-    const rings = (geom.coordinates as number[][][]).map(r => clipRingToRect(r, w, s, e, n));
-    if (!rings[0]) return null;
-    return { type: 'Polygon', coordinates: rings.filter(Boolean) };
-  }
-  if (geom.type === 'MultiPolygon') {
-    const polys: number[][][][] = [];
-    for (const poly of geom.coordinates as number[][][][]) {
-      const rings = poly.map(r => clipRingToRect(r, w, s, e, n));
-      if (rings[0]) polys.push(rings.filter(Boolean) as number[][][]);
-    }
-    return polys.length ? { type: 'MultiPolygon', coordinates: polys } : null;
-  }
-  return geom;
 }
 
 const lon2tx = (lon: number, z: number) => Math.floor(((lon + 180) / 360) * 2 ** z);
@@ -154,19 +117,18 @@ export class EncPack {
       const layer = vt.layers[role];
       const feats: EncFeature[] = [];
       if (layer) {
-        // Vector tiles carry a buffer past the tile edge; treating that
-        // overhang as real geometry bled PHANTOM WATER ~150 m across
-        // shorelines at every tile seam (a route cut a Patoka peninsula on
-        // exactly such a seam). Clip polygons to the tile's true bounds.
+        // Vector tiles carry a buffer past the tile edge — phantom geometry.
+        // Geometry is kept UNCUT; every feature carries its tile's true
+        // bounds (tb) and consumers paint through that window. (Cutting the
+        // rings here with Sutherland–Hodgman bridged concave notches —
+        // phantom water straight across a Patoka peninsula.)
         const n = 2 ** z;
         const tLonMin = (x / n) * 360 - 180, tLonMax = ((x + 1) / n) * 360 - 180;
         const mLat = (ty: number) => { const yy = Math.PI - (2 * Math.PI * ty) / n; return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(yy) - Math.exp(-yy))); };
-        const tLatMax = mLat(y), tLatMin = mLat(y + 1);
+        const tb: [number, number, number, number] = [tLonMin, mLat(y + 1), tLonMax, mLat(y)];
         for (let i = 0; i < layer.length; i++) {
           const gj = layer.feature(i).toGeoJSON(x, y, z);
-          const geom = clipGeomToRect(gj.geometry as EncFeature['geom'], tLonMin, tLatMin, tLonMax, tLatMax);
-          if (!geom) continue;
-          feats.push({ geom, props: (gj.properties ?? {}) as Record<string, any> });
+          feats.push({ geom: gj.geometry as EncFeature['geom'], props: (gj.properties ?? {}) as Record<string, any>, tb });
         }
       }
       this.tiles.set(key, feats);
@@ -249,14 +211,28 @@ export function drawEnc(pack: EncPack, ctx: CanvasRenderingContext2D, project: P
     }
   };
 
+  // Paint a feature's fill through its tile's window — tile-buffer overhang
+  // is phantom geometry and must never show or route as real.
+  const clipTb = (tb: [number, number, number, number] | undefined, draw: () => void) => {
+    if (!tb) { draw(); return; }
+    ctx.save();
+    const [x0, y0] = project(tb[0], tb[3]);
+    const [x1, y1] = project(tb[2], tb[1]);
+    ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip();
+    draw();
+    ctx.restore();
+  };
+
   // depth areas — deepest first so shallows paint on top
   {
     const { feats, complete: c } = pack.collect('depth-areas', bb, zoom);
     complete &&= c;
     const sorted = feats.slice().sort((a, b) => (Number(b.props.DRVAL1) || 0) - (Number(a.props.DRVAL1) || 0));
     for (const f of sorted) {
-      ctx.fillStyle = depthFill(Number(f.props.DRVAL1) || 0);
-      eachRing(f.geom, (ring) => { path(ring); ctx.closePath(); ctx.fill(); });
+      clipTb(f.tb, () => {
+        ctx.fillStyle = depthFill(Number(f.props.DRVAL1) || 0);
+        eachRing(f.geom, (ring) => { path(ring); ctx.closePath(); ctx.fill(); });
+      });
     }
   }
 
@@ -275,10 +251,12 @@ export function drawEnc(pack: EncPack, ctx: CanvasRenderingContext2D, project: P
     const { feats, complete: c } = pack.collect('restricted-areas', bb, zoom);
     complete &&= c;
     for (const f of feats) {
-      eachRing(f.geom, (ring) => {
-        path(ring); ctx.closePath();
-        ctx.fillStyle = 'rgba(200, 60, 180, 0.06)'; ctx.fill();
-        if (zoom >= 11.5) { ctx.strokeStyle = 'rgba(200, 60, 180, 0.5)'; ctx.lineWidth = 1.2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]); }
+      clipTb(f.tb, () => {
+        eachRing(f.geom, (ring) => {
+          path(ring); ctx.closePath();
+          ctx.fillStyle = 'rgba(200, 60, 180, 0.06)'; ctx.fill();
+          if (zoom >= 11.5) { ctx.strokeStyle = 'rgba(200, 60, 180, 0.5)'; ctx.lineWidth = 1.2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]); }
+        });
       });
     }
   }
@@ -441,13 +419,13 @@ export function drawEnc(pack: EncPack, ctx: CanvasRenderingContext2D, project: P
 export interface DepthGate {
   /** HARD-blocked polygons: charted MAXIMUM depth (DRVAL2) below what the
    *  vessel needs — even at its deepest this water can't float her. */
-  shallowPolys: number[][][][];
+  shallowPolys: GatePoly[];
   /** CAUTION polygons: guaranteed minimum (DRVAL1) below need, but charted
    *  max is not. USACE lakes chart most open water 0–9 ft ("not surveyed to
    *  project depth") even where it's 40 ft deep — hard-blocking these makes
    *  whole lakes unroutable. Routing avoids them when a guaranteed path
    *  exists and crosses them with an explicit warning when it doesn't. */
-  cautionPolys: number[][][][];
+  cautionPolys: GatePoly[];
   /** set false to let the mask keep caution water open (relaxed pass) */
   blockCaution?: boolean;
   /** Where the chart claims authority. Preferred: the cells' own M_COVR
@@ -455,7 +433,7 @@ export interface DepthGate {
    *  authority. A bounds RECT is the fallback for packs built before the
    *  coverage layer existed; it over-claims (a bounds box includes water no
    *  cell covers — that bug marooned a Key West start point as "land"). */
-  coveragePolys?: number[][][][];
+  coveragePolys?: GatePoly[];
   coverageRect?: [number, number, number, number];
   /** charted wrecks/obstructions shoaler than the vessel needs */
   shallowPoints: { lat: number; lon: number; radius_nm: number }[];
@@ -465,7 +443,7 @@ export interface DepthGate {
   /** ALL charted depth areas — authoritative water, carved INTO the mask so
    *  chart-visible channels (e.g. the Barkley Canal) are routable even where
    *  generalized shorelines can't see them */
-  waterPolys: number[][][][];
+  waterPolys: GatePoly[];
   /** Berth (each side) applied to shallow boundaries in the mask, nm. The
    *  berth's job is to stop grid routing hugging a shoal by half a cell — so
    *  it must SCALE with the routing grid: a fixed fat berth seals real
@@ -489,10 +467,10 @@ export async function buildDepthGate(pack: EncPack, bb: BBox, neededM: number | 
   const zHint = 12;
   if (pack.roles.has('coverage')) {
     const covr = await pack.ensure('coverage', bb, zHint);
-    const polys: number[][][][] = [];
+    const polys: GatePoly[] = [];
     for (const f of covr) {
       if (f.props.CATCOV !== undefined && Number(f.props.CATCOV) !== 1) continue;   // 2 = "no coverage here"
-      eachPoly(f.geom, (rings) => polys.push(rings));
+      eachPoly(f.geom, (rings) => polys.push({ rings, tb: f.tb }));
     }
     gate.coveragePolys = polys;
   } else {
@@ -502,14 +480,14 @@ export async function buildDepthGate(pack: EncPack, bb: BBox, neededM: number | 
   {
     const depare = await pack.ensure('depth-areas', bb, zHint);
     for (const f of depare) {
-      eachPoly(f.geom, (rings) => gate.waterPolys.push(rings));
+      eachPoly(f.geom, (rings) => gate.waterPolys.push({ rings, tb: f.tb }));
       if (neededM === null) continue;
       if (f.props.UNSURV) continue;   // OSM-shoreline packs: water shape known, depth NOT charted — no depth claim either way
       const d1 = Number(f.props.DRVAL1), d2 = Number(f.props.DRVAL2);
       if (Number.isFinite(d2) && d2 + offsetM < neededM) {
-        eachPoly(f.geom, (rings) => gate.shallowPolys.push(rings));      // hard: max depth below need
+        eachPoly(f.geom, (rings) => gate.shallowPolys.push({ rings, tb: f.tb }));      // hard: max depth below need
       } else if (Number.isFinite(d1) && d1 + offsetM < neededM) {
-        eachPoly(f.geom, (rings) => gate.cautionPolys.push(rings));      // not guaranteed at need
+        eachPoly(f.geom, (rings) => gate.cautionPolys.push({ rings, tb: f.tb }));      // not guaranteed at need
       }
     }
   }

@@ -108,7 +108,10 @@ const lineFeat = (coords) => ({ type: 'Feature', properties: {}, geometry: { typ
 const roleFiles = {
   // UNSURV: shape known, depth NOT charted — the app makes no depth claim
   'depth-areas': fc(polys.map((p) => polyFeat(p, { UNSURV: 1, DRVAL1: 0 }))),
-  'coverage': fc(polys.map((p) => polyFeat(p, { CATCOV: 1 }))),
+  // Coverage = the WHOLE fetched bbox, not just the water: OSM's water layer
+  // is complete for the box, so everything not water IS land — this kills
+  // coarse-base false water over real peninsulas outside the lake polygon.
+  'coverage': fc([polyFeat([[[w, s], [e, s], [e, n], [w, n], [w, s]]], { CATCOV: 1 })]),
   'coastline': fc(lines.map((l) => lineFeat(l))),
 };
 const manifest = {

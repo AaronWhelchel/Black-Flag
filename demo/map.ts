@@ -296,11 +296,17 @@ export class Chart {
     // overlapping clipped copies that tile buffers produce cancel each other
     // into voids. One path + fill per polygon is both correct and fast enough
     // (hundreds of polys, not the 72k-lake case drawRings chunks for).
-    const drawPolys = (polys: number[][][][], color: string) => {
+    const drawPolys = (polys: { rings: number[][][]; tb?: [number, number, number, number] }[], color: string) => {
       g.fillStyle = color;
-      for (const poly of polys) {
+      for (const item of polys) {
+        g.save();
+        if (item.tb) {   // paint through the tile's window — buffer overhang is phantom
+          g.beginPath();
+          g.rect(px(item.tb[0]), py(item.tb[3]), px(item.tb[2]) - px(item.tb[0]), py(item.tb[1]) - py(item.tb[3]));
+          g.clip();
+        }
         g.beginPath();
-        for (const ring of poly) {
+        for (const ring of item.rings) {
           let first = true;
           for (const pt of ring) {
             const x = px(pt[0] as number), y = py(pt[1] as number);
@@ -309,6 +315,7 @@ export class Chart {
           g.closePath();
         }
         g.fill('evenodd');
+        g.restore();
       }
     };
     // Inside charted-depth coverage the chart is the ONLY water authority:
@@ -346,18 +353,23 @@ export class Chart {
         g.strokeStyle = '#000';
         g.lineWidth = Math.max(2, (2 * berth / nmPerLon / spanLon) * W);
         g.lineJoin = 'round';
-        for (let i = 0; i < blockedPolys.length; i += 200) {
+        for (const item of blockedPolys) {
+          g.save();
+          if (item.tb) {
+            g.beginPath();
+            g.rect(px(item.tb[0]), py(item.tb[3]), px(item.tb[2]) - px(item.tb[0]), py(item.tb[1]) - py(item.tb[3]));
+            g.clip();
+          }
           g.beginPath();
-          for (const poly of blockedPolys.slice(i, i + 200)) {
-            for (const ring of poly) {
-              for (let k = 0; k < ring.length; k++) {
-                const x = px(ring[k][0]), y = py(ring[k][1]);
-                k ? g.lineTo(x, y) : g.moveTo(x, y);
-              }
-              g.closePath();
+          for (const ring of item.rings) {
+            for (let k = 0; k < ring.length; k++) {
+              const x = px(ring[k][0]), y = py(ring[k][1]);
+              k ? g.lineTo(x, y) : g.moveTo(x, y);
             }
+            g.closePath();
           }
           g.stroke();
+          g.restore();
         }
       }
     }
