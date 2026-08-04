@@ -34,6 +34,48 @@ class BlobSource {
   }
 }
 
+/** Sutherland–Hodgman: clip a ring against one axis-aligned half-plane. */
+function clipRingHalf(ring: number[][], axis: 0 | 1, bound: number, keepBelow: boolean): number[][] {
+  const out: number[][] = [];
+  const inside = (p: number[]) => (keepBelow ? p[axis] <= bound : p[axis] >= bound);
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length];
+    const ia = inside(a), ib = inside(b);
+    if (ia) out.push(a);
+    if (ia !== ib) {
+      const t = (bound - a[axis]) / (b[axis] - a[axis]);
+      out.push(axis === 0 ? [bound, a[1] + (b[1] - a[1]) * t] : [a[0] + (b[0] - a[0]) * t, bound]);
+    }
+  }
+  return out;
+}
+function clipRingToRect(ring: number[][], w: number, s: number, e: number, nn: number): number[][] | null {
+  let r = ring;
+  r = clipRingHalf(r, 0, e, true); if (r.length < 3) return null;
+  r = clipRingHalf(r, 0, w, false); if (r.length < 3) return null;
+  r = clipRingHalf(r, 1, nn, true); if (r.length < 3) return null;
+  r = clipRingHalf(r, 1, s, false); if (r.length < 3) return null;
+  return r;
+}
+/** Clip polygon geometries to a rect; lines/points pass through (stroked
+ *  barriers overlapping tile buffers is harmless — phantom FILL is not). */
+function clipGeomToRect(geom: { type: string; coordinates: any }, w: number, s: number, e: number, n: number): { type: string; coordinates: any } | null {
+  if (geom.type === 'Polygon') {
+    const rings = (geom.coordinates as number[][][]).map(r => clipRingToRect(r, w, s, e, n));
+    if (!rings[0]) return null;
+    return { type: 'Polygon', coordinates: rings.filter(Boolean) };
+  }
+  if (geom.type === 'MultiPolygon') {
+    const polys: number[][][][] = [];
+    for (const poly of geom.coordinates as number[][][][]) {
+      const rings = poly.map(r => clipRingToRect(r, w, s, e, n));
+      if (rings[0]) polys.push(rings.filter(Boolean) as number[][][]);
+    }
+    return polys.length ? { type: 'MultiPolygon', coordinates: polys } : null;
+  }
+  return geom;
+}
+
 const lon2tx = (lon: number, z: number) => Math.floor(((lon + 180) / 360) * 2 ** z);
 const lat2ty = (lat: number, z: number) => {
   const r = (lat * Math.PI) / 180;
@@ -112,9 +154,19 @@ export class EncPack {
       const layer = vt.layers[role];
       const feats: EncFeature[] = [];
       if (layer) {
+        // Vector tiles carry a buffer past the tile edge; treating that
+        // overhang as real geometry bled PHANTOM WATER ~150 m across
+        // shorelines at every tile seam (a route cut a Patoka peninsula on
+        // exactly such a seam). Clip polygons to the tile's true bounds.
+        const n = 2 ** z;
+        const tLonMin = (x / n) * 360 - 180, tLonMax = ((x + 1) / n) * 360 - 180;
+        const mLat = (ty: number) => { const yy = Math.PI - (2 * Math.PI * ty) / n; return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(yy) - Math.exp(-yy))); };
+        const tLatMax = mLat(y), tLatMin = mLat(y + 1);
         for (let i = 0; i < layer.length; i++) {
           const gj = layer.feature(i).toGeoJSON(x, y, z);
-          feats.push({ geom: gj.geometry as EncFeature['geom'], props: (gj.properties ?? {}) as Record<string, any> });
+          const geom = clipGeomToRect(gj.geometry as EncFeature['geom'], tLonMin, tLatMin, tLonMax, tLatMax);
+          if (!geom) continue;
+          feats.push({ geom, props: (gj.properties ?? {}) as Record<string, any> });
         }
       }
       this.tiles.set(key, feats);
