@@ -28,23 +28,66 @@ if (!region?.osmwater) { console.error(`region ${regionKey} is not an osmwater r
 const [w, s, e, n] = region.bbox;
 
 // ---- fetch --------------------------------------------------------------
+// Overpass is a free, shared, frequently-overloaded service. One big query on
+// one mirror is a coin flip — it 504'd on two of three lakes in a single CI
+// run. So: split the region into small tiles (a small query is far likelier
+// to be served), rotate mirrors, and retry with backoff. A way returned for a
+// tile carries its FULL geometry, so tiles are merged by element id with no
+// stitching loss. Any tile that never answers still quarantines the whole
+// build — a half-fetched lake is a lake with a hole in it (Register R4).
+const MIRRORS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.osm.ch/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
+const TILE_DEG = 0.3;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function queryTile(bw, bs, be, bn, tileLabel) {
+  const q = `[out:json][timeout:90];(way["natural"="water"](${bs},${bw},${bn},${be});relation["natural"="water"](${bs},${bw},${bn},${be}););out geom;`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (let m = 0; m < MIRRORS.length; m++) {
+      const url = MIRRORS[(attempt + m) % MIRRORS.length];
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          body: 'data=' + encodeURIComponent(q),
+          headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'blackflag-pack-build (github actions; charts for small-boat captains)' },
+        });
+        if (!res.ok) { console.error(`  ${tileLabel} ${new URL(url).host}: ${res.status}`); continue; }
+        const js = await res.json();
+        return js.elements ?? [];
+      } catch (err) { console.error(`  ${tileLabel} ${new URL(url).host}: ${err.message}`); }
+    }
+    const wait = 20000 * (attempt + 1);
+    console.error(`  ${tileLabel}: all mirrors declined, waiting ${wait / 1000}s`);
+    await sleep(wait);
+  }
+  return null;
+}
+
 async function fetchElements() {
   if (elementsFile) return JSON.parse(readFileSync(elementsFile, 'utf8')).elements ?? [];
-  const q = `[out:json][timeout:60];(way["natural"="water"](${s},${w},${n},${e});relation["natural"="water"](${s},${w},${n},${e}););out geom;`;
-  for (const url of ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter']) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        body: 'data=' + encodeURIComponent(q),
-        headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'blackflag-pack-build (github actions)' },
-      });
-      if (!res.ok) { console.error(`${url}: ${res.status}`); continue; }
-      const js = await res.json();
-      return js.elements ?? [];
-    } catch (err) { console.error(`${url}: ${err.message}`); }
+  const nx = Math.max(1, Math.ceil((e - w) / TILE_DEG)), ny = Math.max(1, Math.ceil((n - s) / TILE_DEG));
+  console.log(`fetching OSM water for ${regionKey} in ${nx}x${ny} tiles`);
+  const byId = new Map();
+  for (let iy = 0; iy < ny; iy++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const bw = w + ((e - w) * ix) / nx, be = w + ((e - w) * (ix + 1)) / nx;
+      const bs = s + ((n - s) * iy) / ny, bn = s + ((n - s) * (iy + 1)) / ny;
+      const label = `tile ${ix + 1},${iy + 1}`;
+      const els = await queryTile(bw, bs, be, bn, label);
+      if (els === null) {
+        console.error(`${label} never answered — quarantining build rather than shipping a partial lake (Register R4)`);
+        process.exit(1);
+      }
+      for (const el of els) byId.set(`${el.type}/${el.id}`, el);
+      console.log(`  ${label}: ${els.length} elements (${byId.size} unique so far)`);
+      await sleep(1200);   // be a decent citizen of a free service
+    }
   }
-  console.error('no Overpass instance answered — quarantining build (Register R4)');
-  process.exit(1);
+  return [...byId.values()];
 }
 
 // ---- assemble -----------------------------------------------------------
