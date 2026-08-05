@@ -1,0 +1,15 @@
+{
+  "pack": "enc",
+  "region": "ky-cumberland",
+  "built_at": "2026-08-05T14:03:49.692Z",
+  "layers": {
+    "depth-areas": "ky-cumberland-depth-areas.pmtiles",
+    "coverage": "ky-cumberland-coverage.pmtiles",
+    "coastline": "ky-cumberland-coastline.pmtiles"
+  },
+  "provenance": {
+    "source": "OpenStreetMap water polygons (ODbL)",
+    "license": "ODbL",
+    "note": "shoreline shape only — DEPTH IS NOT CHARTED for this water; not for navigation"
+  }
+}
