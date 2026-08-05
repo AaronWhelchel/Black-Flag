@@ -1,0 +1,26 @@
+{
+  "pack": "enc",
+  "region": "nj-manasquan",
+  "built_at": "2026-08-05T13:58:20.063Z",
+  "layers": {
+    "depth-areas": "nj-manasquan-depth-areas.pmtiles",
+    "depth-contours": "nj-manasquan-depth-contours.pmtiles",
+    "coastline": "nj-manasquan-coastline.pmtiles",
+    "soundings": "nj-manasquan-soundings.pmtiles",
+    "buoys-lateral": "nj-manasquan-buoys-lateral.pmtiles",
+    "buoys-special": "nj-manasquan-buoys-special.pmtiles",
+    "lights": "nj-manasquan-lights.pmtiles",
+    "obstructions": "nj-manasquan-obstructions.pmtiles",
+    "wrecks": "nj-manasquan-wrecks.pmtiles",
+    "restricted-areas": "nj-manasquan-restricted-areas.pmtiles",
+    "coverage": "nj-manasquan-coverage.pmtiles",
+    "mile-markers": "nj-manasquan-mile-markers.pmtiles",
+    "dams": "nj-manasquan-dams.pmtiles",
+    "bridges": "nj-manasquan-bridges.pmtiles"
+  },
+  "provenance": {
+    "source": "NOAA ENC (S-57)",
+    "license": "public-domain/noaa",
+    "note": "attribution shown on chart surfaces; not for navigation positioning"
+  }
+}
