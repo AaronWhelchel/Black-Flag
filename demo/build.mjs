@@ -17,9 +17,9 @@ const js = out.outputFiles[0].text;
  *  works offline from a Downloads folder, so it can't reference asset paths. */
 const dataUrl = (f) => `data:image/png;base64,${readFileSync(join(here, 'assets', f)).toString('base64')}`;
 const html = readFileSync(join(here, 'template.html'), 'utf8')
-  .replaceAll('__ICON_64__', () => dataUrl('blackflag-icon-64.png'))
-  .replaceAll('__ICON_128__', () => dataUrl('blackflag-icon-128.png'))
-  .replaceAll('__ICON_256__', () => dataUrl('blackflag-icon-256.png'))
+  .replaceAll('__LOGO_128__', () => dataUrl('blackflag-logo-128.png'))
+  .replaceAll('__LOGO_192__', () => dataUrl('blackflag-logo-192.png'))
+  .replaceAll('__LOGO_256__', () => dataUrl('blackflag-logo-256.png'))
   .replace('/*__BUNDLE__*/', () => js);
 const dest = join(here, 'blackflag-demo.html');
 writeFileSync(dest, html);
