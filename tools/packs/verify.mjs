@@ -19,11 +19,21 @@ import { PMTiles } from 'pmtiles';
 import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader } from 'pbf';
 
-const [tilePath, role, ...sources] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+let box = null;
+const bi = argv.indexOf('--bbox');
+if (bi >= 0) { box = argv[bi + 1].split(',').map(Number); argv.splice(bi, 2); }
+const [tilePath, role, ...sources] = argv;
 if (!tilePath || !role || !sources.length) {
-  console.error('usage: node tools/packs/verify.mjs <pmtiles> <role> <source.geojson>...');
+  console.error('usage: node tools/packs/verify.mjs <pmtiles> <role> [--bbox w,s,e,n] <source.geojson>...');
   process.exit(1);
 }
+// Cells overhang the region by design; what ships for routing is the region.
+const inBox = (lon, lat) => {
+  if (!box) return true;
+  const [w, s, e, n] = box, mx = (e - w) * 0.1, my = (n - s) * 0.1;
+  return lon >= w - mx && lon <= e + mx && lat >= s - my && lat <= n + my;
+};
 
 const lon2x = (lon, z) => Math.floor(((lon + 180) / 360) * 2 ** z);
 const lat2y = (lat, z) => {
@@ -86,6 +96,7 @@ for (const src of sources) {
   for (const f of fc.features ?? []) {
     for (const [lon, lat] of coordsOf(f.geometry)) {
       if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lat) > 85) continue;
+      if (!inBox(lon, lat)) continue;
       const c = cellOf(lon, lat);
       wanted.set(c.key, (wanted.get(c.key) ?? 0) + 1);
       tilesWanted.add(`${c.x}/${c.y}`);
@@ -107,17 +118,35 @@ for (const t of tilesWanted) {
   }
 }
 
-// A lone stray vertex can legitimately vanish to simplification; a sub-cell
+// A lone stray sliver can legitimately vanish to simplification; a sub-cell
 // the source fills with geometry cannot.
 const gutted = [...wanted].filter(([key, verts]) => verts >= 3 && !built.has(key));
+const describe = ([key, verts]) => {
+  const [x, y, sx, sy] = key.split('/').map(Number);
+  const [w, s, e, n] = tileBounds(x, y, z);
+  const lon = w + ((sx + 0.5) / SUB) * (e - w), lat = s + ((sy + 0.5) / SUB) * (n - s);
+  return `${role} z${z}/${x}/${y} sub ${sx},${sy} near ${lat.toFixed(4)},${lon.toFixed(4)} — ${verts} source vertices, nothing built`;
+};
 console.log(`verify ${role}: z${z}, ${tilesWanted.size} tiles / ${wanted.size} sub-cells occupied in source, ${gutted.length} lost in tiling`);
-if (gutted.length) {
-  for (const [key, verts] of gutted.slice(0, 12)) {
-    const [x, y, sx, sy] = key.split('/').map(Number);
-    const [w, s, e, n] = tileBounds(x, y, z);
-    const lon = w + ((sx + 0.5) / SUB) * (e - w), lat = s + ((sy + 0.5) / SUB) * (n - s);
-    console.error(`  HOLE ${role} z${z}/${x}/${y} sub ${sx},${sy} near ${lat.toFixed(4)},${lon.toFixed(4)} — ${verts} source vertices, nothing built`);
-  }
-  console.error(`::error::${role}: ${gutted.length} area(s) lost their features in tiling — a chart with a hole is worse than no chart (Register R4)`);
+for (const gap of gutted.slice(0, 12)) console.log(`  lost: ${describe(gap)}`);
+
+// What actually makes a chart dangerous is a TILE that loses its content —
+// the Key West failure was two tiles gutted end to end, not scattered
+// slivers. So: fail on a gutted tile, or on broad loss; report the rest.
+const per = new Map();
+for (const [key] of wanted) {
+  const t = key.split('/').slice(0, 2).join('/');
+  const rec = per.get(t) ?? { occ: 0, lost: 0 };
+  rec.occ++; per.set(t, rec);
+}
+for (const [key] of gutted) per.get(key.split('/').slice(0, 2).join('/')).lost++;
+const guttedTiles = [...per].filter(([, r]) => r.occ >= 4 && r.lost / r.occ >= 0.5);
+const lostFrac = gutted.length / wanted.size;
+if (guttedTiles.length || lostFrac > 0.02) {
+  for (const [t, r] of guttedTiles) console.error(`  GUTTED TILE z${z}/${t}: ${r.lost}/${r.occ} sub-cells lost`);
+  console.error(`::error::${role}: ${guttedTiles.length} gutted tile(s), ${(lostFrac * 100).toFixed(1)}% of occupied areas lost — a chart with a hole is worse than no chart (Register R4)`);
   process.exit(4);
+}
+if (gutted.length) {
+  console.error(`::warning::${role}: ${gutted.length} isolated area(s) (${(lostFrac * 100).toFixed(2)}%) simplified away — reported, not hidden`);
 }

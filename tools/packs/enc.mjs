@@ -54,6 +54,11 @@ if (!region || cells.length === 0) {
 }
 need('ogr2ogr'); need('tippecanoe');
 
+// The region box is what ships for routing — cells overhang it by design, so
+// the pack verifier judges coverage inside the box, not in the overhang.
+let regionBox = null;
+try { regionBox = JSON.parse(readFileSync(join(here, 'regions.json'), 'utf8')).regions?.[region]?.bbox ?? null; } catch { /* ienc regions have no bbox */ }
+
 const work = join('build', 'enc', region);
 mkdirSync(work, { recursive: true });
 
@@ -118,7 +123,7 @@ for (const [role, files] of Object.entries(layerFiles)) {
   // tiles are a download; missing depth areas are a grounding.
   execFileSync('tippecanoe', ['-o', out, '--force', '-Z6', '-z12', '-pf', '-pk', '-l', role, ...nonEmpty], { stdio: 'pipe' });
   // …and prove it: every tile the source has data in must have data (R4).
-  execFileSync('node', [join(here, 'verify.mjs'), out, role, ...nonEmpty], { stdio: 'inherit' });
+  execFileSync('node', [join(here, 'verify.mjs'), out, role, ...(regionBox ? ['--bbox', regionBox.join(',')] : []), ...nonEmpty], { stdio: 'inherit' });
   manifest.layers[role] = basename(out);
 }
 
