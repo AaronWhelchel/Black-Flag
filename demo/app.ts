@@ -18,7 +18,7 @@ import type { HazardMark } from '../packages/core/src/route.js';
 import { SyncEngine } from '../packages/sync/src/index.js';
 import { makeStore, DeviceStore, savePackFiles, loadPackFiles } from './store.js';
 import { unzipSync } from 'fflate';
-import { regionForRoute, downloadPack } from './packfetch.js';
+import { regionForRoute, downloadPack, newerPackAvailable } from './packfetch.js';
 import { EncPack, buildDepthGate, DepthGate } from './enc.js';
 import { fetchIslands, legCrossesCoast, CoastFetchResult } from './osmland.js';
 import { fetchTripWx, fetchTripTides, fetchWaterLevel, TripWx, TripTides, WaterLevel } from './tripdata.js';
@@ -650,10 +650,17 @@ async function ensurePackForRoute(): Promise<void> {
   let mnLa = 90, mxLa = -90, mnLo = 180, mxLo = -180;
   for (const w of wps) { mnLa = Math.min(mnLa, w.lat); mxLa = Math.max(mxLa, w.lat); mnLo = Math.min(mnLo, w.lon); mxLo = Math.max(mxLo, w.lon); }
   const region = regionForRoute({ minLat: mnLa, maxLat: mxLa, minLon: mnLo, maxLon: mxLo });
-  if (!region || chart.enc?.region === region.key) return;
+  if (!region) return;
+  let force = false;
+  if (chart.enc?.region === region.key) {
+    // right pack already active — but packs get FIXED; a cheap manifest
+    // check picks up a rebuilt (corrected) chart automatically
+    if (!(await newerPackAvailable(region, chart.enc.built_at))) return;
+    force = true;
+  }
   packEnsureBusy = true;
   try {
-    const files = await downloadPack(region, (msg) => { $('enc-status').innerHTML = `<span class="sub">${esc(msg)}</span>`; });
+    const files = await downloadPack(region, (msg) => { $('enc-status').innerHTML = `<span class="sub">${esc(msg)}</span>`; }, force);
     if (files) {
       await activatePack(files, false);
       const stored = await Promise.all(files.map(async f => ({ name: f.name, buf: await f.blob.arrayBuffer() })));

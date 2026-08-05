@@ -51,6 +51,7 @@ export class EncPack {
   roles = new Map<EncRole, RoleState>();
   region = '';
   provenance = 'ENC pack';
+  built_at = '';
   /** called when async tile decodes finish — hook to chart.render() */
   onTiles: (() => void) | null = null;
   private tiles = new Map<string, EncFeature[] | 'loading'>();
@@ -68,6 +69,7 @@ export class EncPack {
           const man = JSON.parse(await f.blob.text());
           if (man.region) pack.region = man.region;
           if (man.provenance?.source) pack.provenance = man.provenance.source;
+          if (man.built_at) pack.built_at = man.built_at;
         } catch { /* manifest optional */ }
         continue;
       }

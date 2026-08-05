@@ -41,13 +41,26 @@ export function regionForRoute(bb: { minLat: number; maxLat: number; minLon: num
 
 const attempted = new Set<string>();
 
+/** Is a newer build of this region published than what's active? Cheap
+ *  manifest-only check — chart packs get FIXED (a Patoka rebuild corrected
+ *  its coverage), and a captain must not be stranded on a stale one. */
+export async function newerPackAvailable(region: PackRegion, activeBuiltAt: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/pack/${region.key}/manifest.json`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return false;
+    const man = await res.json();
+    return !!man.built_at && man.built_at !== activeBuiltAt;
+  } catch { return false; }
+}
+
 /** Download a region's pack files. Returns files ready for EncPack, or null
  *  (already tried this session / fetch failed — caller stays honest). */
 export async function downloadPack(
   region: PackRegion,
   onProgress: (msg: string) => void,
+  force = false,
 ): Promise<{ name: string; blob: Blob }[] | null> {
-  if (attempted.has(region.key)) return null;
+  if (!force && attempted.has(region.key)) return null;
   attempted.add(region.key);
   const base = `${BASE}/pack/${region.key}`;
   try {
