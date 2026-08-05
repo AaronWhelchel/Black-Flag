@@ -1,0 +1,25 @@
+verify depth-areas: z12, 35 tiles / 248 sub-cells occupied in source, 1 lost in tiling
+  HOLE depth-areas z12/1044/1592 sub 1,3 near 37.1516,-88.2092 — 33 source vertices, nothing built
+::error::depth-areas: 1 area(s) lost their features in tiling — a chart with a hole is worse than no chart (Register R4)
+node:internal/errors:983
+  const err = new Error(message);
+              ^
+
+Error: Command failed: node /home/runner/work/Black-Flag/Black-Flag/tools/packs/verify.mjs build/enc/ky-barkley-lakes/ky-barkley-lakes-depth-areas.pmtiles depth-areas build/enc/ky-barkley-lakes/U37CR003-depth-areas.geojson build/enc/ky-barkley-lakes/U37TN005-depth-areas.geojson
+    at genericNodeError (node:internal/errors:983:15)
+    at wrappedFn (node:internal/errors:537:14)
+    at checkExecSyncError (node:child_process:916:11)
+    at execFileSync (node:child_process:952:15)
+    at file:///home/runner/work/Black-Flag/Black-Flag/tools/packs/enc.mjs:121:3
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+  status: 4,
+  signal: null,
+  output: [ null, null, null ],
+  pid: 3363,
+  stdout: null,
+  stderr: null
+}
+
+Node.js v22.23.1
