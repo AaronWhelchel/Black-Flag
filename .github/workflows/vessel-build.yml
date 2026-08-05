@@ -1,0 +1,63 @@
+name: Vessel catalogue build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "tools/vessels/**"
+      - ".github/workflows/vessel-build.yml"
+  schedule:
+    # Monthly — Wikidata gains vessels steadily and nobody needs it sooner
+    - cron: "0 7 1 * *"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm ci
+      - name: Fetch Wikidata vessels (CC0)
+        # A band that fails warns and is skipped; a total failure exits non-zero
+        # and quarantines the build rather than publishing a gutted catalogue.
+        run: |
+          mkdir -p build/vessels
+          node tools/vessels/wikidata.mjs > build/vessels/wikidata.ndjson
+          wc -l build/vessels/wikidata.ndjson
+      - name: Build catalogue
+        run: node tools/vessels/build.mjs build/vessels/wikidata.ndjson
+      - name: Checksum (R4 — verify before publish)
+        run: |
+          cd build/vessels
+          find . -name '*.json' | sort | xargs sha256sum > SHA256SUMS
+          head -3 SHA256SUMS; echo "…"; wc -l SHA256SUMS
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vessel-catalogue
+          path: build/vessels
+          retention-days: 30
+      - name: Publish failure diagnostics to ci-log/vessels
+        if: failure()
+        run: |
+          mkdir -p /tmp/cilog && cd /tmp/cilog
+          echo "run ${{ github.run_id }} (${{ github.sha }}) failed $(date -u +%FT%TZ)" > info.txt
+          head -c 200000 "$GITHUB_WORKSPACE/build/vessels/wikidata.ndjson" > wikidata-head.ndjson 2>/dev/null || true
+          git init -q -b ci-log/vessels
+          git -c user.name=ci -c user.email=actions@github.com add -A
+          git -c user.name=ci -c user.email=actions@github.com commit -qm "failure log"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:refs/heads/ci-log/vessels
+      - name: Publish to pack/vessels branch
+        run: |
+          cd build/vessels
+          rm -f wikidata.ndjson
+          git init -q -b pack/vessels
+          git -c user.name="pack-bot" -c user.email="actions@github.com" add -A
+          git -c user.name="pack-bot" -c user.email="actions@github.com" commit -q -m "vessel catalogue $(date -u +%FT%TZ)"
+          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:refs/heads/pack/vessels
+          echo "published refs/heads/pack/vessels"
