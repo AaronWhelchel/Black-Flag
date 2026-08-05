@@ -88,17 +88,74 @@ for (let i = 0; i < starts.length; i++) {
   if (w === null || e === null || s === null || n === null) continue;
 
   const intersects = !(e < minLon || w > maxLon || n < minLat || s > maxLat);
-  if (intersects) hits.set(id, { id, area: (e - w) * (n - s) });
+  if (intersects) hits.set(id, { id, w, e, s, n, area: (e - w) * (n - s) });
 }
 
-const list = [...hits.values()].sort((a, b) => (b.id[2].localeCompare(a.id[2])) || (a.area - b.area));
-const chosen = list.slice(0, maxCells);
-
-if (chosen.length === 0) {
+const list = [...hits.values()];
+if (list.length === 0) {
   console.error(`no ENC cells intersect ${regionKey} ${JSON.stringify(region.bbox)} in bands [${[...bands]}] — check the catalog structure or region bbox`);
   process.exit(3);
 }
-if (list.length > chosen.length) {
-  console.error(`note: ${list.length} cells matched, capped to ${chosen.length} — dropped: ${list.slice(chosen.length).map(h => h.id).join(', ')}`);
+
+// ---- select cells to COVER the region, not to fit a count ----------------
+// The old rule was "N smallest cells that touch the box". For Key West that
+// quota filled with small outlying harbour cells before it ever reached the
+// cell containing Key West itself — the published pack had a HOLE straight
+// over the harbour, the app found no charted water there, fell back to the
+// coarse world shoreline, and every Florida route cut the same corner. A
+// chart with a hole in it is worse than no chart, so selection is now a
+// greedy set cover over a sample grid, and what it fails to cover is
+// reported loudly instead of silently shipped.
+const GX = 80, GY = 80;
+const pts = [];
+for (let iy = 0; iy < GY; iy++) {
+  for (let ix = 0; ix < GX; ix++) {
+    pts.push([minLon + ((ix + 0.5) / GX) * (maxLon - minLon), minLat + ((iy + 0.5) / GY) * (maxLat - minLat)]);
+  }
+}
+const covers = (c, p) => p[0] >= c.w && p[0] <= c.e && p[1] >= c.s && p[1] <= c.n;
+const need = new Set(pts.keys());
+const chosen = [];
+const take = (c) => {
+  chosen.push(c);
+  for (const i of [...need]) if (covers(c, pts[i])) need.delete(i);
+};
+const sorted = [...list].sort((a, b) => b.id[2].localeCompare(a.id[2]) || (a.area - b.area));
+// Phase 1 — every cell of the largest scale available (band 5 = harbour):
+// detail is the whole point of a chart pack, and a harbour cell inside an
+// approach cell adds no new AREA but far better depth data.
+const topBand = sorted[0].id[2];
+for (const c of sorted) {
+  if (c.id[2] !== topBand || chosen.length >= maxCells) break;
+  take(c);
+}
+// Phase 2 — fill whatever the detail cells left uncovered, fewest cells first.
+// The cell count is a preference; COVERAGE is a safety requirement, so gap
+// filling may exceed max_cells up to a hard ceiling. One extra cell to
+// download beats a hole in the chart over a harbour.
+const hardMax = Number(region.max_cells_hard ?? Math.max(maxCells * 2, maxCells + 8));
+while (chosen.length < hardMax && need.size) {
+  let best = null, bestGain = 0;
+  for (const c of sorted) {
+    if (chosen.includes(c)) continue;
+    let got = 0;
+    for (const i of need) if (covers(c, pts[i])) got++;
+    if (got > bestGain) { best = c; bestGain = got; }
+  }
+  if (!best) break;
+  take(best);
+}
+// Land is legitimately uncovered by ENC cells, so a leftover fraction is
+// normal — but a big one means a real hole, and a hole is a safety defect.
+const uncovered = need.size / pts.length;
+console.error(`cell coverage: ${chosen.length} cells cover ${(100 - uncovered * 100).toFixed(1)}% of the region box (${need.size}/${pts.length} sample points uncovered)`);
+if (uncovered > 0.25) {
+  console.error(`::warning::${regionKey}: ${(uncovered * 100).toFixed(0)}% of the region box has no ENC cell in bands [${[...bands]}] — routes there fall back to coarse shorelines. Widen the bands or shrink the bbox.`);
+}
+if (chosen.length >= hardMax && need.size) {
+  console.error(`::warning::${regionKey}: hit the ${hardMax}-cell hard ceiling with ${need.size} sample points still uncovered — raise max_cells in regions.json`);
+}
+if (chosen.length > maxCells) {
+  console.error(`note: took ${chosen.length} cells (over the ${maxCells} preferred) to close coverage gaps — a hole in the chart is a safety defect, an extra cell is a download`);
 }
 for (const c of chosen) console.log(c.id);

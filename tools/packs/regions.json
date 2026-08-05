@@ -56,7 +56,8 @@
         4,
         5
       ],
-      "max_cells": 14
+      "max_cells": 18,
+      "comment": "cell selection now covers the bbox (greedy set cover); max_cells is a preference, coverage gaps may push past it up to the hard ceiling"
     },
     "in-patoka": {
       "name": "Patoka Lake, Indiana — OSM shoreline pack (no government chart exists)",

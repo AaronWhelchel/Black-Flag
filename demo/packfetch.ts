@@ -39,7 +39,12 @@ export function regionForRoute(bb: { minLat: number; maxLat: number; minLon: num
   return best;
 }
 
-const attempted = new Set<string>();
+/** Failed downloads get a short cooldown, NOT a permanent session ban: a
+ *  captain who plans Patoka and then Key West in one sitting must get the
+ *  Key West chart. (A once-and-never-again guard is how a route silently ran
+ *  on the wrong region's pack.) */
+const failedAt = new Map<string, number>();
+const COOLDOWN_MS = 45_000;
 
 /** Is a newer build of this region published than what's active? Cheap
  *  manifest-only check — chart packs get FIXED (a Patoka rebuild corrected
@@ -54,14 +59,17 @@ export async function newerPackAvailable(region: PackRegion, activeBuiltAt: stri
 }
 
 /** Download a region's pack files. Returns files ready for EncPack, or null
- *  (already tried this session / fetch failed — caller stays honest). */
+ *  (fetch failed, or failed moments ago — caller stays honest either way). */
 export async function downloadPack(
   region: PackRegion,
   onProgress: (msg: string) => void,
   force = false,
 ): Promise<{ name: string; blob: Blob }[] | null> {
-  if (!force && attempted.has(region.key)) return null;
-  attempted.add(region.key);
+  const failed = failedAt.get(region.key);
+  if (!force && failed && Date.now() - failed < COOLDOWN_MS) {
+    onProgress(`No ${region.name} chart pack on this device and the download just failed — routing on shoreline data only. Retry in a moment, or use Load Files.`);
+    return null;
+  }
   const base = `${BASE}/pack/${region.key}`;
   try {
     onProgress(`Auto-downloading the ${region.name} chart pack for this trip…`);
@@ -80,12 +88,14 @@ export async function downloadPack(
       done++;
       onProgress(`Auto-downloading the ${region.name} chart pack… ${done}/${layerFiles.length} layers`);
     }
+    failedAt.delete(region.key);
     return files;
   } catch (e) {
+    failedAt.set(region.key, Date.now());
     onProgress(`Couldn’t auto-download the ${region.name} pack (${String((e as Error).message).slice(0, 60)}) — routing continues on shoreline data; retry with the refresh button or Load Files.`);
     return null;
   }
 }
 
-/** Allow a retry after a failed attempt (e.g. captain hits refresh). */
-export function resetAttempt(key: string) { attempted.delete(key); }
+/** Allow an immediate retry after a failed attempt (e.g. captain hits refresh). */
+export function resetAttempt(key: string) { failedAt.delete(key); }

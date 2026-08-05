@@ -125,7 +125,9 @@ for (const [role, json] of Object.entries(roleFiles)) {
   const gj = join(work, `${regionKey}-${role}.geojson`);
   writeFileSync(gj, json);
   const out = join(work, `${regionKey}-${role}.pmtiles`);
-  execFileSync('tippecanoe', ['-o', out, '--force', '-Z6', '-z12', '--drop-densest-as-needed', '-l', role, gj], { stdio: 'pipe' });
+  // never drop features from a safety surface (see enc.mjs), then verify
+  execFileSync('tippecanoe', ['-o', out, '--force', '-Z6', '-z12', '-pf', '-pk', '-l', role, gj], { stdio: 'pipe' });
+  execFileSync('node', [join(here, 'verify.mjs'), out, role, gj], { stdio: 'inherit' });
   manifest.layers[role] = basename(out);
 }
 writeFileSync(join(work, 'manifest.json'), JSON.stringify(manifest, null, 2));

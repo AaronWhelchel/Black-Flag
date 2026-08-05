@@ -70,3 +70,51 @@ test('auto-routing is deterministic', () => {
   const b = autoRoute({ lat: 0, lon: -0.1 }, { lat: 0, lon: 0.1 }, wallWithGap, { resolution: 140 });
   assert.equal(JSON.stringify(a), JSON.stringify(b));
 });
+
+// ---- shore standoff as a cost, not a fence -------------------------------
+// Water south of lat 0 is land. A route along the shore is shortest; a good
+// route buys some offing. The cost function is the captain's "distance off".
+
+const northOfShore = (lat: number, _lon: number) => lat > 0;
+const offingCost = (want: number) => (lat: number, _lon: number) => {
+  const clr = lat;                        // clearance from the shoreline at lat 0
+  if (clr >= want) return 1;
+  const t = 1 - clr / want;
+  return 1 + 4 * t * t;
+};
+
+test('a standoff cost pushes the line off the beach where there is room', () => {
+  const a = { lat: 0.002, lon: -0.1 }, b = { lat: 0.002, lon: 0.1 };
+  const hugging = autoRoute(a, b, northOfShore, { resolution: 160 });
+  const standing = autoRoute(a, b, northOfShore, { resolution: 160, cost: offingCost(0.02) });
+  assert.ok(hugging.ok && standing.ok);
+  const maxLat = (r: typeof standing) => Math.max(...r.waypoints.map(w => w.lat));
+  assert.ok(maxLat(hugging) <= 0.004, `no-cost route runs straight along the beach: ${maxLat(hugging)}`);
+  assert.ok(
+    maxLat(standing) >= 0.02 * 0.75,
+    `standoff route should stand off ~0.02: got ${maxLat(standing)}`,
+  );
+  assert.ok(standing.dist_nm! >= hugging.dist_nm!, 'offing is paid for in distance');
+});
+
+test('a standoff cost never blocks a channel narrower than the standoff', () => {
+  // 0.004° of water between two shores, captain wants 0.02° of offing: no
+  // route can have it, and the honest answer is still a route.
+  const narrow = (lat: number, _lon: number) => lat > 0 && lat < 0.004;
+  const r = autoRoute({ lat: 0.002, lon: -0.1 }, { lat: 0.002, lon: 0.1 }, narrow, {
+    resolution: 160,
+    cost: (lat: number) => offingCost(0.02)(Math.min(lat, 0.004 - lat), 0),
+  });
+  assert.equal(r.ok, true, 'a preference must never seal a real channel');
+});
+
+test('smoothing cannot straighten the offing back onto the beach', () => {
+  // Shore with a shallow bay: the direct line is clear water but closer in.
+  const water = (lat: number, _lon: number) => lat > 0;
+  const want = 0.02;
+  const r = autoRoute({ lat: 0.03, lon: -0.1 }, { lat: 0.03, lon: 0.1 }, water, {
+    resolution: 160, cost: offingCost(want),
+  });
+  assert.ok(r.ok);
+  for (const w of r.waypoints) assert.ok(w.lat >= want * 0.9, `waypoint at ${w.lat} came inside the offing`);
+});

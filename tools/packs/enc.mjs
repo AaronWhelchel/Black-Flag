@@ -13,7 +13,10 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 const S57_LAYERS = [
   // layer candidates (tried in order — inland cells use lowercase IENC
@@ -108,7 +111,14 @@ for (const [role, files] of Object.entries(layerFiles)) {
   // quantization must be predictable (~10 m at z12), not a function of how
   // much data a region happens to contain. -zg once gave a sparse fixture
   // maxzoom 3 ≈ 0.7 nm quantization — unacceptable for a safety surface.
-  execFileSync('tippecanoe', ['-o', out, '--force', '-Z6', '-z12', '--drop-densest-as-needed', '-l', role, ...nonEmpty], { stdio: 'pipe' });
+  //
+  // -pf/-pk (no feature limit, no tile size limit) and NO drop-densest: a
+  // dense harbour is exactly where a captain needs every charted polygon, and
+  // it is exactly what tippecanoe's default limits throw away first. Bigger
+  // tiles are a download; missing depth areas are a grounding.
+  execFileSync('tippecanoe', ['-o', out, '--force', '-Z6', '-z12', '-pf', '-pk', '-l', role, ...nonEmpty], { stdio: 'pipe' });
+  // …and prove it: every tile the source has data in must have data (R4).
+  execFileSync('node', [join(here, 'verify.mjs'), out, role, ...nonEmpty], { stdio: 'inherit' });
   manifest.layers[role] = basename(out);
 }
 

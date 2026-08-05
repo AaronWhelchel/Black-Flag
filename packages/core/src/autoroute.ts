@@ -26,6 +26,15 @@ export interface AutoRouteOpts {
   pad?: number;
   /** Max cells to search before giving up. Default 200k. */
   maxExpand?: number;
+  /**
+   * Per-position travel cost multiplier, ≥ 1 (1 = no penalty). This is how a
+   * preference is expressed rather than a rule: water close to the beach is
+   * still water, it just costs more to use, so the search buys its offing
+   * wherever the water is wide enough to afford it and spends the penalty
+   * only where the channel leaves no choice. Must never return < 1, or the
+   * octile heuristic stops being admissible.
+   */
+  cost?: (lat: number, lon: number) => number;
 }
 
 export function autoRoute(
@@ -60,12 +69,16 @@ export function autoRoute(
     lat: minLat + (y / (H - 1)) * (maxLat - minLat),
   });
 
-  // Rasterize walkability once.
+  // Rasterize walkability (and travel cost) once.
+  const costFn = opts.cost;
   const walk = new Uint8Array(W * H);
+  const cost = new Float32Array(W * H).fill(1);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const p = toLatLon(x, y);
-      walk[y * W + x] = isWalkable(p.lat, p.lon) ? 1 : 0;
+      const ok = isWalkable(p.lat, p.lon);
+      walk[y * W + x] = ok ? 1 : 0;
+      if (ok && costFn) cost[y * W + x] = Math.max(1, costFn(p.lat, p.lon));
     }
   }
 
@@ -147,7 +160,7 @@ export function autoRoute(
         // no corner-cutting through blocked diagonals
         if (dx && dy && (!walk[cy * W + nx] || !walk[ny * W + cx])) continue;
         const step = dx && dy ? 1.4142 : 1;
-        const ng = g[cur] + step;
+        const ng = g[cur] + step * ((cost[cur] + cost[ni]) / 2);
         if (ng < g[ni]) { g[ni] = ng; from[ni] = cur; f[ni] = ng + hx(ni); push(ni); }
       }
     }
@@ -158,24 +171,40 @@ export function autoRoute(
   const cells: number[] = [];
   for (let i = goal; i !== -1; i = from[i]) cells.push(i);
   cells.reverse();
-  const clearLine = (i: number, j: number) => {
+  /** Cost profile of the stretch of found path a shortcut would replace. */
+  const segStats = (from: number, to: number) => {
+    let mx = 1, sum = 0;
+    for (let k = from; k <= to; k++) { const c = cost[cells[k]]; if (c > mx) mx = c; sum += c; }
+    return { mx, mean: sum / (to - from + 1) };
+  };
+  const clearLine = (i: number, j: number, mx = Infinity, mean = Infinity) => {
     const x0 = i % W, y0 = Math.floor(i / W), x1 = j % W, y1 = Math.floor(j / W);
     // Validate the segment against the CONTINUOUS mask, not the coarse grid:
     // the caller's isWalkable is finer than the routing grid, and a sliver of
     // land between two walkable cell centers is exactly what makes a smoothed
     // leg visually touch a beach. Sub-cell sampling at ~¼ cell.
     const steps = Math.max(4, Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 4);
+    let sum = 0, n = 0;
     for (let s = 1; s < steps; s++) {
       const xf = x0 + ((x1 - x0) * s) / steps, yf = y0 + ((y1 - y0) * s) / steps;
       const p = toLatLon(xf, yf);
       if (!isWalkable(p.lat, p.lon)) return false;
+      if (costFn) {
+        const c = Math.max(1, costFn(p.lat, p.lon));
+        // Straightening must never buy distance with the captain's offing:
+        // a shortcut may not pass closer to anything than the path it
+        // replaces already did, nor spend more of its length in close water.
+        if (c > mx + 1e-6) return false;
+        sum += c; n++;
+      }
     }
-    return true;
+    return !(costFn && n && sum / n > mean * 1.05 + 0.02);
   };
   const keep: number[] = [cells[0]];
   let anchor = 0;
   for (let i = 2; i < cells.length; i++) {
-    if (!clearLine(cells[anchor], cells[i])) { keep.push(cells[i - 1]); anchor = i - 1; }
+    const st = segStats(anchor, i);
+    if (!clearLine(cells[anchor], cells[i], st.mx, st.mean)) { keep.push(cells[i - 1]); anchor = i - 1; }
   }
   keep.push(cells[cells.length - 1]);
 

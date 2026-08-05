@@ -44,6 +44,25 @@ if (!out.includes('US5FLPLY') || !out.includes('US4FLBND')) throw new Error(`sel
 if (out.includes('US5AKWRP') || out.includes('US1EEZ9M')) throw new Error(`over-selected: ${out}`);
 if (out[0] !== 'US5FLPLY') throw new Error(`harbor band should sort first: ${out}`);
 
+// ---- the Key West hole ---------------------------------------------------
+// Selection used to be "the N smallest cells that touch the box". Where a
+// region has many small cells clustered at one end, that quota filled before
+// ever reaching the cell over the harbour at the other end — and the pack
+// shipped with a HOLE over the exact water captains route through. Coverage
+// is a safety requirement, so gap-filling now outranks the cell count.
+const tiny = (i) => polyRecord(`US5FLE${i}0`, [[24.60, -81.60 + i * 0.01], [24.62, -81.58 + i * 0.01]]);
+const holeXml = `<DS_Series>${[0, 1, 2, 3, 4, 5].map(tiny).join('')}${
+  // the harbour cell at the far (west) end — bigger, so it sorted last
+  polyRecord('US5FLKWH', [[24.45, -81.95], [24.70, -81.70]])}${
+  // approach cell over the whole region
+  boundsRecord('US4FLAPP', -81.95, 24.42, -81.55, 24.72)}</DS_Series>`;
+writeFileSync('build/test-catalog-hole.xml', holeXml);
+const holeOut = execFileSync('node', ['tools/packs/catalog.mjs', 'build/test-catalog-hole.xml', 'fl-key-west', '4'], { encoding: 'utf8' }).trim().split('\n');
+if (!holeOut.includes('US5FLKWH') && !holeOut.includes('US4FLAPP')) {
+  throw new Error(`coverage hole left over the harbour — selected only: ${holeOut}`);
+}
+if (holeOut.length <= 4) throw new Error(`gap filling must be allowed past the preferred cap: ${holeOut}`);
+
 // Exit-3 honesty: a region with no matches must fail loudly.
 let failed = false;
 try {

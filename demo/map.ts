@@ -234,7 +234,7 @@ export class Chart {
     depthGate?: DepthGate | null,
     coast: { rings: number[][][]; lines: number[][][] } | null = null,
     standoffPx = 1,
-  ): { isWater: (lat: number, lon: number) => boolean } {
+  ): { isWater: (lat: number, lon: number) => boolean; clearanceNm: (lat: number, lon: number) => number } {
     const spanLon = bb.maxLon - bb.minLon, spanLat = bb.maxLat - bb.minLat;
     const aspect = spanLon / spanLat;
     const W = aspect >= 1 ? maskPx : Math.max(32, Math.round(maskPx * aspect));
@@ -398,26 +398,68 @@ export class Chart {
       g.fill();
     }
     const data = g.getImageData(0, 0, W, H).data;
-    // Uniform shoreline standoff: a point only counts as water if a small
-    // neighborhood around it is water too (1-px erosion, ~10-25 m depending
-    // on mask scale). Routes stop hugging ANY land edge — beach, chart line,
-    // OSM island — to the exact pixel, without per-source berth bookkeeping.
-    // standoffPx = preferred shore clearance in mask pixels (0 = raw
-    // connectivity for narrow channels — the ladder retries raw and says so).
-    // 8-direction ring sampling ≈ "am I at least this far from any land".
-    const r = standoffPx;
-    const d = Math.round(r * 0.7071);
     const wet = (x: number, y: number) => {
       if (x < 0 || y < 0 || x >= W || y >= H) return false;
       return data[(y * W + x) * 4] > 127;
     };
+    // ---- clearance field ------------------------------------------------
+    // Distance (in mask pixels) from every water pixel to the nearest blocked
+    // pixel — land, charted shoal, dam, hazard disc, all of it. Two-pass
+    // chamfer transform, O(W·H).
+    //
+    // This is what turns shore standoff from a gate into seamanship. The old
+    // build ERODED the mask by the standoff: water within the standoff simply
+    // stopped existing, so a route either kept its full offing or — when a
+    // headland or narrows made that impossible — failed and fell back to a
+    // rung with NO standoff at all, hugging every beach on the way. A boat
+    // doesn't work that way. The captain's distance off is a strong
+    // preference: hold it where the water allows, give it up only exactly
+    // where the channel is too tight, and say so afterwards.
+    const dist = new Float32Array(W * H);
+    const FAR = 1e6;
+    for (let i = 0; i < W * H; i++) dist[i] = data[i * 4] > 127 ? FAR : 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (dist[i] === 0) continue;
+        let d = dist[i];
+        if (x > 0) d = Math.min(d, dist[i - 1] + 1);
+        if (y > 0) d = Math.min(d, dist[i - W] + 1);
+        if (x > 0 && y > 0) d = Math.min(d, dist[i - W - 1] + 1.4142);
+        if (x < W - 1 && y > 0) d = Math.min(d, dist[i - W + 1] + 1.4142);
+        dist[i] = d;
+      }
+    }
+    for (let y = H - 1; y >= 0; y--) {
+      for (let x = W - 1; x >= 0; x--) {
+        const i = y * W + x;
+        if (dist[i] === 0) continue;
+        let d = dist[i];
+        if (x < W - 1) d = Math.min(d, dist[i + 1] + 1);
+        if (y < H - 1) d = Math.min(d, dist[i + W] + 1);
+        if (x < W - 1 && y < H - 1) d = Math.min(d, dist[i + W + 1] + 1.4142);
+        if (x > 0 && y < H - 1) d = Math.min(d, dist[i + W - 1] + 1.4142);
+        dist[i] = d;
+      }
+    }
+    const latMid2 = (bb.minLat + bb.maxLat) / 2;
+    const nmPerPx = ((bb.maxLon - bb.minLon) * 60 * Math.cos((latMid2 * Math.PI) / 180)) / W;
+    // Legacy hard erosion, kept for callers that still want a gate (0 = off).
+    const r = standoffPx;
+    const dd = Math.round(r * 0.7071);
     return {
       isWater: (lat: number, lon: number) => {
         const x = Math.round(px(lon)), y = Math.round(py(lat));
         if (!wet(x, y)) return false;
         if (r === 0) return true;
         return wet(x - r, y) && wet(x + r, y) && wet(x, y - r) && wet(x, y + r)
-            && wet(x - d, y - d) && wet(x + d, y - d) && wet(x - d, y + d) && wet(x + d, y + d);
+            && wet(x - dd, y - dd) && wet(x + dd, y - dd) && wet(x - dd, y + dd) && wet(x + dd, y + dd);
+      },
+      /** Distance to the nearest blocked thing, in nautical miles. */
+      clearanceNm: (lat: number, lon: number) => {
+        const x = Math.round(px(lon)), y = Math.round(py(lat));
+        if (x < 0 || y < 0 || x >= W || y >= H) return FAR;
+        return dist[y * W + x] * nmPerPx;
       },
     };
   }
