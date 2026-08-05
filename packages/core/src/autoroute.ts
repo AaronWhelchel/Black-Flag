@@ -191,14 +191,16 @@ export function autoRoute(
       if (!isWalkable(p.lat, p.lon)) return false;
       if (costFn) {
         const c = Math.max(1, costFn(p.lat, p.lon));
-        // Straightening must never buy distance with the captain's offing:
-        // a shortcut may not pass closer to anything than the path it
-        // replaces already did, nor spend more of its length in close water.
-        if (c > mx + 1e-6) return false;
+        // Straightening must not buy distance with the captain's offing — but
+        // the guard has to leave room to actually straighten. Held too tight
+        // (max + ε, mean × 1.05) it refused nearly every shortcut in close
+        // water and the line came out as a staircase of 100-yard legs, which
+        // is not a course anyone can steer.
+        if (c > mx + 0.3) return false;
         sum += c; n++;
       }
     }
-    return !(costFn && n && sum / n > mean * 1.05 + 0.02);
+    return !(costFn && n && sum / n > mean * 1.2 + 0.05);
   };
   const keep: number[] = [cells[0]];
   let anchor = 0;
@@ -207,6 +209,27 @@ export function autoRoute(
     if (!clearLine(cells[anchor], cells[i], st.mx, st.mean)) { keep.push(cells[i - 1]); anchor = i - 1; }
   }
   keep.push(cells[cells.length - 1]);
+
+  // Second pass: a single forward sweep leaves corners it couldn't see past.
+  // Drop any waypoint whose neighbours can see each other on the same terms,
+  // repeatedly, until the line stops getting simpler. A captain steers legs,
+  // not pixels.
+  const idxOf = new Map(cells.map((c, i) => [c, i]));
+  for (let pass = 0; pass < 4; pass++) {
+    let dropped = false;
+    for (let k = 1; k < keep.length - 1; k++) {
+      const a0 = idxOf.get(keep[k - 1]) ?? 0, b0 = idxOf.get(keep[k + 1]) ?? cells.length - 1;
+      const st = segStats(Math.min(a0, b0), Math.max(a0, b0));
+      if (clearLine(keep[k - 1], keep[k + 1], st.mx, st.mean)) { keep.splice(k, 1); dropped = true; k--; }
+    }
+    if (!dropped) break;
+  }
+  // Finally, collapse waypoints closer together than half a grid cell — those
+  // are quantisation, not turns.
+  for (let k = keep.length - 2; k > 0; k--) {
+    const dx = (keep[k] % W) - (keep[k + 1] % W), dy = Math.floor(keep[k] / W) - Math.floor(keep[k + 1] / W);
+    if (Math.hypot(dx, dy) < 0.5) keep.splice(k, 1);
+  }
 
   const waypoints: RouteWaypoint[] = keep.map((i, n) => {
     const p = toLatLon(i % W, Math.floor(i / W));

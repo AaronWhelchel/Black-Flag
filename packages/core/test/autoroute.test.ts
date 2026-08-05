@@ -118,3 +118,26 @@ test('smoothing cannot straighten the offing back onto the beach', () => {
   assert.ok(r.ok);
   for (const w of r.waypoints) assert.ok(w.lat >= want * 0.9, `waypoint at ${w.lat} came inside the offing`);
 });
+
+test('a standoff route is a course to steer, not a staircase', () => {
+  // Guard against the smoothing guard: held too tight, the offing cost made
+  // every shortcut fail and the line came back as dozens of 100-yard legs.
+  const water = (lat: number, _lon: number) => lat > 0;
+  const r = autoRoute({ lat: 0.03, lon: -0.1 }, { lat: 0.03, lon: 0.1 }, water, {
+    resolution: 200, cost: offingCost(0.02),
+  });
+  assert.ok(r.ok);
+  assert.ok(r.waypoints.length <= 8, `open-water leg should be a handful of waypoints, got ${r.waypoints.length}`);
+});
+
+test('rounding a headland stays a handful of waypoints', () => {
+  const headland = (lat: number, lon: number) => !(Math.abs(lon) < 0.02 && lat < 0.04);
+  const r = autoRoute({ lat: 0.01, lon: -0.12 }, { lat: 0.01, lon: 0.12 }, headland, {
+    resolution: 200, cost: (lat: number, lon: number) => {
+      const d = Math.min(Math.hypot(Math.abs(lon) - 0.02, 0), Math.abs(lat - 0.04));
+      return d >= 0.02 ? 1 : 1 + 4 * (1 - d / 0.02) ** 2;
+    },
+  });
+  assert.ok(r.ok);
+  assert.ok(r.waypoints.length <= 10, `headland detour should stay readable, got ${r.waypoints.length}`);
+});
