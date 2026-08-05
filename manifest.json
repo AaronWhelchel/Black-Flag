@@ -1,0 +1,24 @@
+{
+  "pack": "enc",
+  "region": "fl-key-west",
+  "built_at": "2026-08-05T13:58:03.394Z",
+  "layers": {
+    "depth-areas": "fl-key-west-depth-areas.pmtiles",
+    "depth-contours": "fl-key-west-depth-contours.pmtiles",
+    "coastline": "fl-key-west-coastline.pmtiles",
+    "soundings": "fl-key-west-soundings.pmtiles",
+    "buoys-lateral": "fl-key-west-buoys-lateral.pmtiles",
+    "buoys-special": "fl-key-west-buoys-special.pmtiles",
+    "lights": "fl-key-west-lights.pmtiles",
+    "obstructions": "fl-key-west-obstructions.pmtiles",
+    "wrecks": "fl-key-west-wrecks.pmtiles",
+    "restricted-areas": "fl-key-west-restricted-areas.pmtiles",
+    "coverage": "fl-key-west-coverage.pmtiles",
+    "bridges": "fl-key-west-bridges.pmtiles"
+  },
+  "provenance": {
+    "source": "NOAA ENC (S-57)",
+    "license": "public-domain/noaa",
+    "note": "attribution shown on chart surfaces; not for navigation positioning"
+  }
+}
