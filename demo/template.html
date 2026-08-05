@@ -171,6 +171,15 @@
   table.curve td { padding: 3px 4px; }
   table.curve input { width: 100%; padding: 5px 8px; }
   table.curve button { background: none; border: 0; color: var(--bad); cursor: pointer; }
+.vcat-hit { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 8px 2px; border-top: 1px solid var(--line); cursor: pointer; }
+  .vcat-hit:hover { background: var(--card-2); }
+  .vcat-hit .nm { font-weight: 600; }
+  .vcat-hit .meta { color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+  .vcat-card { margin-top: 12px; border-top: 2px solid var(--line); padding-top: 12px; }
+  .vcat-specs { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px 14px; margin: 10px 0; }
+  .vcat-specs .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px; color: var(--ink-3); font-weight: 700; }
+  .vcat-specs .val { font-size: 15px; font-weight: 600; }
+  .vcat-specs .est { color: var(--warn); font-size: 10.5px; font-weight: 700; }
   .vessel-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); }
   .vessel-item .nm { font-weight: 600; }
   .vessel-item .meta { color: var(--ink-3); font-size: 12px; }
@@ -353,6 +362,14 @@
 
         <!-- VESSEL -->
         <div id="view-vessel" class="hidden">
+          <div class="card">
+            <h3>Find your boat</h3>
+            <div class="sub" style="margin-bottom:8px">Search the vessel catalogue — kayaks and jon boats through runabouts and trawlers to ferries, cruise ships and RMS Titanic. Pick yours and its numbers fill in everywhere.</div>
+            <input id="vcat-q" type="text" placeholder="Try “Tahoe T16”, “pontoon”, “Boston Whaler”, “Carnival”…" style="width:100%">
+            <div id="vcat-status" class="sub" style="margin-top:6px"></div>
+            <div id="vcat-results"></div>
+            <div id="vcat-detail"></div>
+          </div>
           <div class="card">
             <h3>Your vessels</h3>
             <div id="vessel-list"></div>

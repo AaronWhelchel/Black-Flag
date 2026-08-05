@@ -19,6 +19,9 @@ import { SyncEngine } from '../packages/sync/src/index.js';
 import { makeStore, DeviceStore, savePackFiles, loadPackFiles } from './store.js';
 import { unzipSync } from 'fflate';
 import { regionForRoute, downloadPack, newerPackAvailable } from './packfetch.js';
+import { VesselCatalog } from './vessels.js';
+import { describeRow, draftBasis, tripFieldsOf, round1, KN_PER_MPH } from '../packages/core/src/vessel.js';
+import type { VesselSpec } from '../packages/core/src/vessel.js';
 import { EncPack, buildDepthGate, DepthGate } from './enc.js';
 import { fetchIslands, legCrossesCoast, CoastFetchResult } from './osmland.js';
 import { fetchTripWx, fetchTripTides, fetchWaterLevel, TripWx, TripTides, WaterLevel } from './tripdata.js';
@@ -1244,8 +1247,167 @@ $('vintage').innerHTML = [
 
 // ================= Boot =================
 
+
+// ================= Vessel catalogue =================
+// A captain picks the boat they are actually piloting and its numbers flow
+// into routing (draft), bridges (air draft) and fuel. What we do NOT do is
+// let an estimate masquerade as a specification: an estimated draft is
+// labelled everywhere it appears, because that is the number that grounds
+// people.
+
+const vcat = new VesselCatalog();
+let vcatSelected: VesselSpec | null = null;
+
+/** Fuel maths needs an engine curve and the catalogue rarely has one. We can
+ *  synthesise a defensible one from horsepower and top speed (a marine petrol
+ *  engine burns roughly 0.5 lb of fuel per hp-hour at wide-open throttle,
+ *  diesel about 0.4), but it is an ESTIMATE and is labelled as such wherever
+ *  it shows up. Real numbers from the captain's own fuel log always win. */
+function synthesizeCurve(v: VesselSpec): { rpm: number; kn: number; gph: number }[] | null {
+  const hp = v.power?.hp;
+  const topKn = v.performance?.top_kn
+    ?? (v.performance?.top_mph != null ? v.performance.top_mph * KN_PER_MPH : undefined);
+  if (!hp || !topKn) return null;
+  const total = hp * (v.power?.count ?? 1);
+  const diesel = v.power?.type === 'diesel' || v.power?.type === 'inboard' && total > 400;
+  const wotGph = round1(total * (diesel ? 0.056 : 0.082));
+  const topRpm = v.performance?.rpm_at_top ?? (diesel ? 3400 : 5800);
+  return [
+    { rpm: Math.round(topRpm * 0.5), kn: round1(topKn * 0.45), gph: round1(wotGph * 0.18) },
+    { rpm: Math.round(topRpm * 0.7), kn: round1(topKn * 0.7), gph: round1(wotGph * 0.45) },
+    { rpm: topRpm, kn: round1(topKn), gph: wotGph },
+  ];
+}
+
+const vcatSpec = (label: string, value: string | null, estimated = false) =>
+  value == null ? '' : `<div><div class="k">${esc(label)}</div><div class="val">${esc(value)}${estimated ? ' <span class="est">est</span>' : ''}</div></div>`;
+
+function renderVesselDetail(v: VesselSpec) {
+  vcatSelected = v;
+  const est = (f: string) => !!v.estimated?.includes(f);
+  const basis = draftBasis(v);
+  const p = v.power, perf = v.performance, cap = v.capacity;
+  const topMph = perf?.top_mph ?? (perf?.top_kn != null ? round1(perf.top_kn / KN_PER_MPH) : undefined);
+  const draftLine = v.draft_ft == null
+    ? `<div style="color:var(--warn);font-size:12.5px;font-weight:600;margin-top:6px">⚠ No draft on record for this vessel. Depth-aware routing needs one — add yours below and it becomes exact.</div>`
+    : basis === 'estimated' || basis === 'captain' && est('draft_ft')
+      ? `<div style="color:var(--warn);font-size:12.5px;font-weight:600;margin-top:6px">⚠ That draft is typical for the class, not a published figure for this boat. Measure yours and correct it — this is the number depth-aware routing runs on.</div>`
+      : '';
+  $('vcat-detail').innerHTML = `
+    <div class="vcat-card">
+      <div style="font-size:17px;font-weight:700">${esc(v.name)}</div>
+      <div class="sub">${esc([v.make, v.category.replace(/-/g, ' '), v.year_from ? `${v.year_from}${v.year_to && v.year_to !== v.year_from ? `–${v.year_to}` : ''}` : ''].filter(Boolean).join(' · '))}</div>
+      <div class="vcat-specs">
+        ${vcatSpec('Length', v.loa_ft != null ? `${round1(v.loa_ft)} ft` : null, est('loa_ft'))}
+        ${vcatSpec('Beam', v.beam_ft != null ? `${round1(v.beam_ft)} ft` : null, est('beam_ft'))}
+        ${vcatSpec('Draft', v.draft_ft != null ? `${round1(v.draft_ft)} ft` : null, est('draft_ft'))}
+        ${vcatSpec('Air draft', v.air_draft_ft != null ? `${round1(v.air_draft_ft)} ft` : null, est('air_draft_ft'))}
+        ${vcatSpec('Power', p?.hp ? `${p.hp} hp${p.count && p.count > 1 ? ` ×${p.count}` : ''}${p.make ? ` ${p.make}` : ''}` : p?.type ? p.type : null, est('hp'))}
+        ${vcatSpec('Drive', p?.type && p.hp ? p.type.replace(/-/g, ' ') : null)}
+        ${vcatSpec('Top speed', topMph != null ? `${round1(topMph)} mph${perf?.rpm_at_top ? ` @ ${perf.rpm_at_top} rpm` : ''}` : null)}
+        ${vcatSpec('Seats', cap?.persons != null ? `${cap.persons}` : null, est('persons'))}
+        ${vcatSpec('Berths', cap?.berths != null ? `${cap.berths}` : null)}
+        ${vcatSpec('Fuel', cap?.fuel_gal != null ? `${cap.fuel_gal} gal` : null, est('fuel_gal'))}
+        ${vcatSpec('Water', cap?.water_gal != null ? `${cap.water_gal} gal` : null)}
+        ${vcatSpec('Gross tonnage', v.gross_tonnage != null ? `${Math.round(v.gross_tonnage).toLocaleString()} GT` : null)}
+        ${vcatSpec('Passengers', cap?.passengers != null ? cap.passengers.toLocaleString() : null)}
+        ${vcatSpec('Crew', cap?.crew != null ? cap.crew.toLocaleString() : null)}
+      </div>
+      ${v.uses?.length ? `<div class="sub">Built for: ${esc(v.uses.join(', '))}</div>` : ''}
+      ${v.notes ? `<div class="sub" style="margin-top:4px">${esc(v.notes)}</div>` : ''}
+      ${draftLine}
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn primary" id="vcat-use">This is my boat</button>
+        <button class="btn" id="vcat-close">Close</button>
+      </div>
+      <div class="prov">${esc(v.provenance.source)} · ${esc(v.provenance.license)} · ${esc(v.provenance.confidence)}${v.provenance.url ? ` · ${esc(v.provenance.url)}` : ''}</div>
+    </div>`;
+  $('vcat-use').addEventListener('click', () => adoptVessel(v));
+  $('vcat-close').addEventListener('click', () => { $('vcat-detail').innerHTML = ''; vcatSelected = null; });
+}
+
+/** Make the catalogue record the captain's own vessel: everything we know is
+ *  carried over, everything we don't is left blank rather than invented, and
+ *  the editor opens on it so they can correct it before it plans anything. */
+function adoptVessel(v: VesselSpec) {
+  const t = tripFieldsOf(v);
+  const curve = synthesizeCurve(v);
+  const id = `v-${Date.now().toString(36)}`;
+  engine.write('vessel', id, 'create', {
+    name: v.name,
+    type: v.category === 'sailboat' || v.category === 'catamaran' ? 'sail'
+      : v.loa_ft != null && v.loa_ft >= 26 ? 'cruiser' : 'bowrider',
+    loa_ft: v.loa_ft ?? 20,
+    draft_ft: t.draft_ft,
+    max_seas_ft: v.loa_ft != null ? Math.max(1, Math.min(8, round1(v.loa_ft / 6))) : 2,
+    usable_gal: t.fuel_capacity_gal ?? 20,
+    reserve_frac: 0.2,
+    cruise_kn: t.cruise_kn ?? 15,
+    curve: curve ?? [{ rpm: 3000, kn: 8, gph: 3 }, { rpm: 5000, kn: 20, gph: 12 }],
+    catalog_id: v.id,
+    curve_estimated: !curve ? 'none' : 'synthesised',
+  });
+  persistSoon();
+  renderVesselList();
+  refreshVesselSelect();
+  ($('free-vessel') as HTMLSelectElement).value = id;
+  applyVesselChoice();
+  engine.write('plan', 'free-plan', 'update', { vessel: id });
+  persistSoon();
+  const warn = [
+    t.draft_ft == null ? 'no draft on record — add yours, depth-aware routing needs it' : null,
+    v.estimated?.includes('draft_ft') ? 'the draft is class-typical, not measured' : null,
+    curve ? 'fuel burn is estimated from horsepower until you enter real numbers' : 'fuel burn is a placeholder until you enter real numbers',
+  ].filter(Boolean).join(' · ');
+  $('vcat-status').innerHTML = `<b>${esc(v.name)}</b> is now your vessel and is selected for planning.${warn ? ` <span style="color:var(--warn)">Check it: ${esc(warn)}.</span>` : ''} Open it under “Your vessels” to correct anything.`;
+  $('vcat-detail').innerHTML = '';
+  ($('vcat-q') as HTMLInputElement).value = '';
+  $('vcat-results').innerHTML = '';
+}
+
+function renderVesselHits(q: string) {
+  if (!q.trim()) { $('vcat-results').innerHTML = ''; return; }
+  const hits = vcat.search(q);
+  if (!hits.length) {
+    $('vcat-results').innerHTML = `<div class="sub" style="padding:8px 2px">Nothing matches “${esc(q)}”. Add your boat by hand below — and tell us, so it goes in the catalogue for the next captain.</div>`;
+    return;
+  }
+  $('vcat-results').innerHTML = hits.map(h =>
+    `<div class="vcat-hit" data-id="${esc(h.row[0])}"><div class="nm">${esc(h.row[1])}</div><div class="meta">${esc(describeRow(h.row))}</div></div>`).join('');
+  document.querySelectorAll('#vcat-results .vcat-hit').forEach(el =>
+    el.addEventListener('click', async () => {
+      const id = (el as HTMLElement).dataset.id!;
+      $('vcat-detail').innerHTML = '<div class="sub" style="margin-top:10px">Loading…</div>';
+      const v = await vcat.get(id);
+      if (v) renderVesselDetail(v);
+      else $('vcat-detail').innerHTML = '<div class="sub" style="margin-top:10px">Couldn’t load that record — it needs a connection the first time.</div>';
+    }));
+}
+
+let vcatTimer: any;
+$('vcat-q').addEventListener('input', () => {
+  clearTimeout(vcatTimer);
+  const q = ($('vcat-q') as HTMLInputElement).value;
+  vcatTimer = setTimeout(async () => {
+    if (vcat.state !== 'ready') {
+      $('vcat-status').textContent = 'Loading the vessel catalogue…';
+      await vcat.ensure();
+      $('vcat-status').textContent = vcat.note;
+    }
+    renderVesselHits(q);
+  }, 160);
+});
+$('vcat-q').addEventListener('focus', async () => {
+  if (vcat.state === 'idle') {
+    $('vcat-status').textContent = 'Loading the vessel catalogue…';
+    await vcat.ensure();
+    $('vcat-status').textContent = vcat.note;
+  }
+});
+
 (window as any).__bf = {
   chart: () => chart,
+  vcat: () => vcat,
   mask: (bb: any, px: number) => chart.buildWaterMask(bb, px, [], []),
   depthGate: (bb: any, neededM: number) => chart.enc ? buildDepthGate(chart.enc, bb, neededM) : null,
 };

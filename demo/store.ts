@@ -104,3 +104,19 @@ export async function makeStore(): Promise<DeviceStore> {
     };
   }
 }
+
+/** Generic key/value in the pack store — the vessel catalogue's index and its
+ *  shards live here so the whole thing works offline after one download. */
+export async function saveKV(key: string, value: any): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(PACKS, 'readwrite').objectStore(PACKS).put(value, key);
+      tx.onsuccess = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch { /* in-memory host */ }
+}
+export async function loadKV<T = any>(key: string): Promise<T | null> {
+  return (await getKey(key)) as T | null;
+}

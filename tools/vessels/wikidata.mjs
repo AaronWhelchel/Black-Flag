@@ -75,18 +75,18 @@ const toFeet = (amt, unitUri) => {
 
 // ---- category ------------------------------------------------------------
 const CATEGORY_RULES = [
-  [/cruise (ship|liner)/i, 'cruise-ship'], [/ocean liner|passenger liner/i, 'ocean-liner'],
+  [/cruise (ship|liner)/i, 'cruise-ship'], [/ocean liner|passenger liner|funnel liner|\bliner\b/i, 'ocean-liner'],
   [/ferry|ferryboat/i, 'ferry'], [/tug/i, 'tug'],
   [/container/i, 'container'], [/tanker/i, 'tanker'],
   [/bulk carrier|cargo|freighter|cargo ship/i, 'cargo'],
   [/submarine|u-boat/i, 'submarine'],
-  [/aircraft carrier|destroyer|frigate|corvette|battleship|cruiser \(|warship|patrol|minesweeper|gunboat/i, 'warship'],
+  [/aircraft carrier|destroyer|frigate|corvette|battleship|cruiser \(|warship|patrol|minesweeper|gunboat|naval |torpedo|landing (ship|craft)|amphibious|troopship|ironclad|man-of-war/i, 'warship'],
   [/(sailing ship|tall ship|barque|brig|schooner|clipper|windjammer|galleon)/i, 'tall-ship'],
   [/(sailboat|sailing yacht|sloop|ketch|yawl|dinghy \(sail|sailing dinghy)/i, 'sailboat'],
   [/catamaran|trimaran/i, 'catamaran'],
   [/motor yacht|superyacht|megayacht|yacht/i, 'motor-yacht'],
   [/trawler/i, 'trawler'],
-  [/fishing/i, 'fishing-vessel'],
+  [/fishing|whaler|sealer|trawling/i, 'fishing-vessel'],
   [/icebreaker|research vessel|survey|dredg|barge|workboat|pilot boat|supply/i, 'workboat'],
   [/lifeboat|rescue/i, 'workboat'],
   [/kayak/i, 'kayak'], [/canoe/i, 'canoe'], [/paddleboard|surfboard/i, 'paddleboard'],
@@ -94,7 +94,9 @@ const CATEGORY_RULES = [
   [/personal watercraft|jet ski/i, 'jet-ski'],
   [/rowing|rowboat|skiff|dinghy|tender/i, 'dinghy'],
   [/motorboat|speedboat|powerboat|launch/i, 'runabout'],
-  [/steamboat|steamship|paddle steamer/i, 'workboat'],
+  [/motor (ship|vessel)|freight|coaster/i, 'cargo'],
+  [/sailing (vessel|boat|craft)/i, 'sailboat'],
+  [/steamboat|paddle steamer|riverboat/i, 'workboat'],
 ];
 const categoryOf = (typeLabel, name) => {
   const s = `${typeLabel ?? ''} ${name ?? ''}`;
