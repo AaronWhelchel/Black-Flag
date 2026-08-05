@@ -518,7 +518,7 @@ $('auto-route').addEventListener('click', () => {
     /** One search attempt at a given breadth. A long headland can force a
      *  detour far outside the direct corridor, so if the tight search finds
      *  no path we retry once over a much wider area before saying no. */
-    const attempt = async (maskPadF: number, corePad: number, maskPx: number, res: number, blockCaution = true) => {
+    const attempt = async (maskPadF: number, corePad: number, maskPx: number, res: number, blockCaution = true, maxExpand?: number) => {
       const padD = span * maskPadF;
       const bb = { minLat: minLat - padD, maxLat: maxLat + padD, minLon: minLon - padD, maxLon: maxLon + padD };
       let gate: DepthGate | null = null;
@@ -550,7 +550,7 @@ $('auto-route').addEventListener('click', () => {
       const out: typeof wps = [wps[0]];
       let snapped = false;
       for (let i = 0; i < wps.length - 1; i++) {
-        const r = autoRoute(wps[i], wps[i + 1], mask.isWater, { resolution: res, pad: corePad, cost: costFn });
+        const r = autoRoute(wps[i], wps[i + 1], mask.isWater, { resolution: res, pad: corePad, cost: costFn, ...(maxExpand ? { maxExpand } : {}) });
         if (!r.ok) return { ok: false as const, reason: r.reason ?? 'failed' };
         snapped = snapped || !!r.snapped_start || !!r.snapped_end;
         // Snapped endpoints become approach anchors: the captain's endpoint
@@ -584,9 +584,16 @@ $('auto-route').addEventListener('click', () => {
     // (warned), then widen the search area for a long headland. The shore
     // standoff no longer needs rungs of its own — it's a cost now, so a
     // narrow channel bends the line instead of failing the search.
+    // When there's no path, LOOK CLOSER BEFORE LOOKING WIDER. On a lake the
+    // usual reason is a creek arm 40 m across that the working grid (~60 m a
+    // cell) simply cannot see — the water is there, the resolution isn't.
+    // Widening the search box makes cells coarser and hides it further.
     const retriable = (r: { ok: boolean; reason?: string }) => !r.ok && /no navigable path|not on navigable water/.test(r.reason ?? '');
     let result = await attempt(0.45, 0.35, 420, 220, true);
     if (retriable(result) && chart.enc && neededFt) { result = await attempt(0.45, 0.35, 420, 220, false); if (result.ok) cautioned = true; }
+    if (retriable(result)) { result = await attempt(0.45, 0.35, 900, 420, true, 400_000); }
+    if (retriable(result) && chart.enc && neededFt) { result = await attempt(0.45, 0.35, 900, 420, false, 400_000); if (result.ok) cautioned = true; }
+    if (retriable(result)) { result = await attempt(0.5, 0.4, 1500, 620, true, 700_000); }
     if (retriable(result)) { result = await attempt(1.7, 1.5, 640, 300, true); }
     if (retriable(result) && chart.enc && neededFt) { result = await attempt(1.7, 1.5, 640, 300, false); if (result.ok) cautioned = true; }
     const dataLine = `<div class="sub" style="margin-top:6px;font-size:11px">Route data \u2014 chart: ${chart.enc ? esc(chart.enc.region) + (gated ? ' (depth-aware)' : ' (no coverage here)') : 'none'} \u00b7 OSM: ${coast ? `${coast.lines.length} coastline / ${coast.waterRings.length} waterbodies` : coastFailed ? '<b style="color:#a15c00">FAILED \u2014 lake/island shapes missing this attempt</b>' : 'none in area'} \u00b7 base shorelines + your ${hazardMarks().length} marks</div>`;
@@ -620,7 +627,12 @@ $('auto-route').addEventListener('click', () => {
       }
     }
     const haveClosest = Number.isFinite(closest) && closest < 1e5;
-    const closeTxt = haveClosest ? `${closest < 0.095 ? closest.toFixed(3) : closest.toFixed(2)} nm` : '';
+    // "0.000 nm" is technically what the raster says and useless to read.
+    // Close in, a captain thinks in yards.
+    const closeTxt = !haveClosest ? ''
+      : closest >= 0.095 ? `${closest.toFixed(2)} nm`
+      : closest >= 0.012 ? `${Math.round(closest * 2025)} yd`
+      : 'under 25 yd';
     const narrowWarn = haveClosest && stdNm > 0 && closest < stdNm * 0.8
       ? `<div style="color:#a15c00;font-size:12.5px;font-weight:600;margin-top:4px">\u26a0 Narrow waters: the line closes to about <b>${closeTxt}</b> off \u2014 inside your ${stdNm} nm distance off, because there isn\u2019t room to hold it there. Slow down and mind your set and drift.</div>`
       : '';

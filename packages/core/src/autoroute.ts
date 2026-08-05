@@ -200,7 +200,12 @@ export function autoRoute(
         sum += c; n++;
       }
     }
-    return !(costFn && n && sum / n > mean * 1.2 + 0.05);
+    // In water tight enough that the whole corridor is already inside the
+    // offing, there is no offing left to protect — walkability is the real
+    // constraint, and holding the tight guard there just produces a bend
+    // every hundred yards up a winding creek.
+    const slack = mean > 1.8 ? 1.45 : 1.2;
+    return !(costFn && n && sum / n > mean * slack + 0.05);
   };
   const keep: number[] = [cells[0]];
   let anchor = 0;
