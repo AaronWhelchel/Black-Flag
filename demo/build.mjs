@@ -13,7 +13,13 @@ const out = await build({
   minify: true,   // keeps the single-file demo under desktop-artifact size limits
 });
 const js = out.outputFiles[0].text;
+/** Brand art is inlined as data URLs — the demo has to stay ONE file that
+ *  works offline from a Downloads folder, so it can't reference asset paths. */
+const dataUrl = (f) => `data:image/png;base64,${readFileSync(join(here, 'assets', f)).toString('base64')}`;
 const html = readFileSync(join(here, 'template.html'), 'utf8')
+  .replaceAll('__ICON_64__', () => dataUrl('blackflag-icon-64.png'))
+  .replaceAll('__ICON_128__', () => dataUrl('blackflag-icon-128.png'))
+  .replaceAll('__ICON_256__', () => dataUrl('blackflag-icon-256.png'))
   .replace('/*__BUNDLE__*/', () => js);
 const dest = join(here, 'blackflag-demo.html');
 writeFileSync(dest, html);

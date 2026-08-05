@@ -553,13 +553,27 @@ $('auto-route').addEventListener('click', () => {
         const r = autoRoute(wps[i], wps[i + 1], mask.isWater, { resolution: res, pad: corePad, cost: costFn });
         if (!r.ok) return { ok: false as const, reason: r.reason ?? 'failed' };
         snapped = snapped || !!r.snapped_start || !!r.snapped_end;
-        // keep snapped points as standoff entry/exit anchors: the captain's
-        // endpoint stays where placed (dock, beach), with a short approach
-        // leg out to the standoff line
+        // Snapped endpoints become approach anchors: the captain's endpoint
+        // stays exactly where placed (dock, ramp, beach) and the route runs
+        // out to the standoff line from there. But when the water between the
+        // route and the captain's own point is simply clear, that anchor adds
+        // a dogleg for nothing — the line ran past the ramp and hooked back.
+        // Keep an anchor only when it is actually doing work.
+        const clearRaw = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) => {
+          for (let s = 0; s <= 48; s++) {
+            const lat = a.lat + ((b.lat - a.lat) * s) / 48, lon = a.lon + ((b.lon - a.lon) * s) / 48;
+            if (!mask.isWater(lat, lon)) return false;
+          }
+          return true;
+        };
+        const mid = r.waypoints.slice(1, -1);
+        const startAnchor = r.waypoints[0], endAnchor = r.waypoints[r.waypoints.length - 1];
+        const afterStart = mid[0] ?? wps[i + 1];
+        const beforeEnd = mid[mid.length - 1] ?? wps[i];
         out.push(
-          ...(r.snapped_start ? [r.waypoints[0]] : []),
-          ...r.waypoints.slice(1, -1),
-          ...(r.snapped_end ? [r.waypoints[r.waypoints.length - 1]] : []),
+          ...(r.snapped_start && !clearRaw(wps[i], afterStart) ? [startAnchor] : []),
+          ...mid,
+          ...(r.snapped_end && !clearRaw(beforeEnd, wps[i + 1]) ? [endAnchor] : []),
           wps[i + 1],
         );
       }

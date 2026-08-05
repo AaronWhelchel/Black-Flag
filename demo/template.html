@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Black Flag</title>
+<title>Black Flag — Maritime Intelligence Operations System</title>
+<link rel="icon" type="image/png" href="__ICON_128__">
+<link rel="apple-touch-icon" href="__ICON_256__">
+<meta name="theme-color" content="#0b1020">
 <style>
   :root {
     color-scheme: light;
@@ -20,8 +23,15 @@
 
   #appbar { position: sticky; top: 0; z-index: 30; background: rgba(255,255,255,.92); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
   #appbar .inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; gap: 16px; padding: 10px 20px; }
-  .wordmark { font-family: Georgia, serif; font-weight: 700; font-size: 19px; letter-spacing: 2px; white-space: nowrap; }
+  /* Brand: the badge carries its own lettering, but at header size that type
+     is unreadable — so the mark rides as an icon and the name is set in real
+     type beside it. */
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .mark { border-radius: 8px; display: block; flex: none; }
+  .wordmark { font-family: Georgia, serif; font-weight: 700; font-size: 19px; letter-spacing: 2px; white-space: nowrap; line-height: 1.1; }
   .wordmark .flag { color: var(--gold); }
+  .tagline { font-size: 8.5px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; margin-top: 1px; }
+  @media (max-width: 720px) { .tagline { display: none; } }
   #searchwrap { position: relative; flex: 1; max-width: 520px; }
   #search { width: 100%; padding: 9px 14px 9px 36px; border: 1px solid var(--line); border-radius: 22px; background: var(--card-2); font-size: 14px; color: var(--ink); outline: none; }
   #search:focus { border-color: var(--accent); background: #fff; }
@@ -167,7 +177,13 @@
 </head>
 <body>
   <div id="appbar"><div class="inner">
-    <div class="wordmark">BLACK <span class="flag">⚑</span> FLAG</div>
+    <div class="brand">
+      <img class="mark" src="__ICON_64__" alt="" width="34" height="34">
+      <div>
+        <div class="wordmark">BLACK FLAG</div>
+        <div class="tagline">Maritime Intelligence Operations System</div>
+      </div>
+    </div>
     <div id="searchwrap">
       <input id="search" placeholder="Search any waterway — try “Patoka”…" autocomplete="off">
       <div id="search-results"></div>

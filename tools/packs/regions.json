@@ -63,10 +63,30 @@
       "name": "Patoka Lake, Indiana — OSM shoreline pack (no government chart exists)",
       "osmwater": true,
       "bbox": [
-        -86.78,
-        38.36,
-        -86.55,
-        38.5
+        -86.8,
+        38.34,
+        -86.46,
+        38.52
+      ]
+    },
+    "ky-rough-river": {
+      "name": "Rough River Lake, Kentucky — OSM shoreline pack (no government chart exists)",
+      "osmwater": true,
+      "bbox": [
+        -86.62,
+        37.5,
+        -86.26,
+        37.74
+      ]
+    },
+    "ky-cumberland": {
+      "name": "Lake Cumberland, Kentucky — OSM shoreline pack (no government chart exists)",
+      "osmwater": true,
+      "bbox": [
+        -85.32,
+        36.7,
+        -84.48,
+        37.14
       ]
     }
   }
