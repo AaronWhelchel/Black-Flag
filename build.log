@@ -1,0 +1,25 @@
+verify depth-areas: z12, 76 tiles / 852 sub-cells occupied in source, 1 lost in tiling
+  HOLE depth-areas z12/1115/1756 sub 1,1 near 24.7967,-81.9690 — 4 source vertices, nothing built
+::error::depth-areas: 1 area(s) lost their features in tiling — a chart with a hole is worse than no chart (Register R4)
+node:internal/errors:983
+  const err = new Error(message);
+              ^
+
+Error: Command failed: node /home/runner/work/Black-Flag/Black-Flag/tools/packs/verify.mjs build/enc/fl-key-west/fl-key-west-depth-areas.pmtiles depth-areas build/enc/fl-key-west/US4FL1ES-depth-areas.geojson build/enc/fl-key-west/US4FL1ET-depth-areas.geojson build/enc/fl-key-west/US4FL1EU-depth-areas.geojson build/enc/fl-key-west/US4FL1FS-depth-areas.geojson build/enc/fl-key-west/US4FL1FT-depth-areas.geojson build/enc/fl-key-west/US5FL4CP-depth-areas.geojson build/enc/fl-key-west/US5FL4CQ-depth-areas.geojson build/enc/fl-key-west/US5FL4CR-depth-areas.geojson build/enc/fl-key-west/US5FL4CS-depth-areas.geojson build/enc/fl-key-west/US5FL4DP-depth-areas.geojson build/enc/fl-key-west/US5FL4DQ-depth-areas.geojson build/enc/fl-key-west/US5FL4DR-depth-areas.geojson build/enc/fl-key-west/US5FL4DS-depth-areas.geojson build/enc/fl-key-west/US5FL4DU-depth-areas.geojson build/enc/fl-key-west/US5FL4EP-depth-areas.geojson build/enc/fl-key-west/US5FL4EQ-depth-areas.geojson build/enc/fl-key-west/US5FL4ER-depth-areas.geojson build/enc/fl-key-west/US5FL4ES-depth-areas.geojson build/enc/fl-key-west/US5FL4ET-depth-areas.geojson build/enc/fl-key-west/US5FL4EU-depth-areas.geojson build/enc/fl-key-west/US5FL4FS-depth-areas.geojson build/enc/fl-key-west/US5FL4FT-depth-areas.geojson build/enc/fl-key-west/US5FL4FU-depth-areas.geojson
+    at genericNodeError (node:internal/errors:983:15)
+    at wrappedFn (node:internal/errors:537:14)
+    at checkExecSyncError (node:child_process:916:11)
+    at execFileSync (node:child_process:952:15)
+    at file:///home/runner/work/Black-Flag/Black-Flag/tools/packs/enc.mjs:121:3
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+  status: 4,
+  signal: null,
+  output: [ null, null, null ],
+  pid: 3723,
+  stdout: null,
+  stderr: null
+}
+
+Node.js v22.23.1
