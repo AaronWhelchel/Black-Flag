@@ -1,0 +1,25 @@
+verify depth-areas: z12, 110 tiles / 991 sub-cells occupied in source, 1 lost in tiling
+  HOLE depth-areas z12/1209/1546 sub 2,1 near 40.2711,-73.6853 — 10 source vertices, nothing built
+::error::depth-areas: 1 area(s) lost their features in tiling — a chart with a hole is worse than no chart (Register R4)
+node:internal/errors:983
+  const err = new Error(message);
+              ^
+
+Error: Command failed: node /home/runner/work/Black-Flag/Black-Flag/tools/packs/verify.mjs build/enc/nj-manasquan/nj-manasquan-depth-areas.pmtiles depth-areas build/enc/nj-manasquan/US4NJ1EE-depth-areas.geojson build/enc/nj-manasquan/US4NJ1EF-depth-areas.geojson build/enc/nj-manasquan/US4NJ1EG-depth-areas.geojson build/enc/nj-manasquan/US4NJ1FE-depth-areas.geojson build/enc/nj-manasquan/US4NJ1FF-depth-areas.geojson build/enc/nj-manasquan/US4NJ1FG-depth-areas.geojson build/enc/nj-manasquan/US4NY1AP-depth-areas.geojson build/enc/nj-manasquan/US4NY1AQ-depth-areas.geojson build/enc/nj-manasquan/US5NJ1NM-depth-areas.geojson build/enc/nj-manasquan/US5NJ1OM-depth-areas.geojson build/enc/nj-manasquan/US5NJ1PM-depth-areas.geojson build/enc/nj-manasquan/US5NJ1QM-depth-areas.geojson build/enc/nj-manasquan/US5NJ1RM-depth-areas.geojson build/enc/nj-manasquan/US5NJ1TM-depth-areas.geojson build/enc/nj-manasquan/US5NJ1UM-depth-areas.geojson
+    at genericNodeError (node:internal/errors:983:15)
+    at wrappedFn (node:internal/errors:537:14)
+    at checkExecSyncError (node:child_process:916:11)
+    at execFileSync (node:child_process:952:15)
+    at file:///home/runner/work/Black-Flag/Black-Flag/tools/packs/enc.mjs:121:3
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+  status: 4,
+  signal: null,
+  output: [ null, null, null ],
+  pid: 3605,
+  stdout: null,
+  stderr: null
+}
+
+Node.js v22.23.1

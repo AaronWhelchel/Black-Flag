@@ -1,0 +1,19 @@
+total 3196
+drwxr-xr-x 2 runner runner    4096 Aug  5 11:20 .
+drwxr-xr-x 4 runner runner    4096 Aug  5 11:20 ..
+-rw-r--r-- 1 runner runner   56175 Aug  5 11:20 US4NJ1EE.zip
+-rw-r--r-- 1 runner runner  172746 Aug  5 11:20 US4NJ1EF.zip
+-rw-r--r-- 1 runner runner   56282 Aug  5 11:20 US4NJ1EG.zip
+-rw-r--r-- 1 runner runner  219104 Aug  5 11:20 US4NJ1FE.zip
+-rw-r--r-- 1 runner runner  408271 Aug  5 11:20 US4NJ1FF.zip
+-rw-r--r-- 1 runner runner   81976 Aug  5 11:20 US4NJ1FG.zip
+-rw-r--r-- 1 runner runner  499783 Aug  5 11:20 US4NY1AP.zip
+-rw-r--r-- 1 runner runner 1049357 Aug  5 11:20 US4NY1AQ.zip
+-rw-r--r-- 1 runner runner   39383 Aug  5 11:20 US5NJ1NM.zip
+-rw-r--r-- 1 runner runner   66763 Aug  5 11:20 US5NJ1OM.zip
+-rw-r--r-- 1 runner runner   99708 Aug  5 11:20 US5NJ1PM.zip
+-rw-r--r-- 1 runner runner  221665 Aug  5 11:20 US5NJ1QM.zip
+-rw-r--r-- 1 runner runner   53634 Aug  5 11:20 US5NJ1RM.zip
+-rw-r--r-- 1 runner runner   13213 Aug  5 11:20 US5NJ1SM.zip
+-rw-r--r-- 1 runner runner   85553 Aug  5 11:20 US5NJ1TM.zip
+-rw-r--r-- 1 runner runner  101036 Aug  5 11:20 US5NJ1UM.zip
