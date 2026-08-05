@@ -1,0 +1,15 @@
+{
+  "pack": "enc",
+  "region": "in-patoka",
+  "built_at": "2026-08-05T13:59:30.907Z",
+  "layers": {
+    "depth-areas": "in-patoka-depth-areas.pmtiles",
+    "coverage": "in-patoka-coverage.pmtiles",
+    "coastline": "in-patoka-coastline.pmtiles"
+  },
+  "provenance": {
+    "source": "OpenStreetMap water polygons (ODbL)",
+    "license": "ODbL",
+    "note": "shoreline shape only — DEPTH IS NOT CHARTED for this water; not for navigation"
+  }
+}
