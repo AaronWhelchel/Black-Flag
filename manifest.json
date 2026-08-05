@@ -1,0 +1,26 @@
+{
+  "pack": "enc",
+  "region": "fl-keys-bimini",
+  "built_at": "2026-08-05T13:58:05.625Z",
+  "layers": {
+    "depth-areas": "fl-keys-bimini-depth-areas.pmtiles",
+    "depth-contours": "fl-keys-bimini-depth-contours.pmtiles",
+    "coastline": "fl-keys-bimini-coastline.pmtiles",
+    "soundings": "fl-keys-bimini-soundings.pmtiles",
+    "buoys-lateral": "fl-keys-bimini-buoys-lateral.pmtiles",
+    "buoys-special": "fl-keys-bimini-buoys-special.pmtiles",
+    "lights": "fl-keys-bimini-lights.pmtiles",
+    "obstructions": "fl-keys-bimini-obstructions.pmtiles",
+    "wrecks": "fl-keys-bimini-wrecks.pmtiles",
+    "restricted-areas": "fl-keys-bimini-restricted-areas.pmtiles",
+    "coverage": "fl-keys-bimini-coverage.pmtiles",
+    "mile-markers": "fl-keys-bimini-mile-markers.pmtiles",
+    "dams": "fl-keys-bimini-dams.pmtiles",
+    "bridges": "fl-keys-bimini-bridges.pmtiles"
+  },
+  "provenance": {
+    "source": "NOAA ENC (S-57)",
+    "license": "public-domain/noaa",
+    "note": "attribution shown on chart surfaces; not for navigation positioning"
+  }
+}
