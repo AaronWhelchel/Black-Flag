@@ -22,6 +22,8 @@ export const PACK_REGIONS: PackRegion[] = [
   { key: 'in-patoka', name: 'Patoka Lake (OSM shoreline)', bbox: [-86.80, 38.34, -86.46, 38.52] },
   { key: 'ky-rough-river', name: 'Rough River Lake (OSM shoreline)', bbox: [-86.62, 37.50, -86.26, 37.74] },
   { key: 'ky-cumberland', name: 'Lake Cumberland (OSM shoreline)', bbox: [-85.32, 36.70, -84.48, 37.14] },
+  { key: 'ky-nolin', name: 'Nolin River Lake (OSM shoreline)', bbox: [-86.42, 37.20, -86.10, 37.44] },
+  { key: 'in-monroe', name: 'Monroe Lake (OSM shoreline)', bbox: [-86.58, 38.94, -86.24, 39.16] },
 ];
 
 const BASE = 'https://raw.githubusercontent.com/AaronWhelchel/Black-Flag';

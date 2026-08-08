@@ -88,6 +88,26 @@
         -84.48,
         37.14
       ]
+    },
+    "ky-nolin": {
+      "name": "Nolin River Lake, Kentucky — OSM shoreline pack (no government chart exists)",
+      "osmwater": true,
+      "bbox": [
+        -86.42,
+        37.2,
+        -86.1,
+        37.44
+      ]
+    },
+    "in-monroe": {
+      "name": "Monroe Lake, Indiana — OSM shoreline pack (no government chart exists)",
+      "osmwater": true,
+      "bbox": [
+        -86.58,
+        38.94,
+        -86.24,
+        39.16
+      ]
     }
   }
 }
