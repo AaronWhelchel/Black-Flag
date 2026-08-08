@@ -23,6 +23,15 @@ export interface HourPoint {
   summary: string;
 }
 
+/** Cloud and pressure, which NWS's hourly product doesn't carry in a usable
+ *  form but which fishing conditions want. One extra free call. */
+export interface SkyExtras {
+  cloud_pct: number | null;
+  pressure_mb: number | null;
+  /** Change over the ~6 h leading to the departure hour (mb). */
+  pressure_change_mb: number | null;
+}
+
 export interface PlaceForecast {
   hours: HourPoint[];
   /** conditions at the chosen departure hour, chop already estimated */
@@ -30,6 +39,7 @@ export interface PlaceForecast {
   /** worst of the planned window (departure → +8 h) */
   window: DayConditions;
   now: DayConditions | null;
+  sky: SkyExtras | null;
   provenance: string;
   fetched_at: string;
 }
@@ -167,10 +177,32 @@ export async function fetchPlaceForecast(
   const nowIdx = src.hours.findIndex(h => new Date(h.time).getTime() + 3600_000 > nowTs);
   const now = nowIdx >= 0 ? toConditions(src.hours[nowIdx], fetchNm) : null;
 
+  let sky: SkyExtras | null = null;
+  try { sky = await skyExtras(lat, lon, departISO); } catch { /* fishing extras are optional; the day plan doesn't need them */ }
+
   return {
     hours: src.hours.slice(idx, idx + Math.max(hoursOut, 12)),
-    at, window, now,
+    at, window, now, sky,
     provenance: `${provenance} · chop estimated from wind over ~${fetchNm.toFixed(1)} nm of fetch (physics, not a wave forecast)`,
     fetched_at: new Date().toISOString(),
+  };
+}
+
+/** Cloud cover and the pressure trend into the departure hour. */
+export async function skyExtras(lat: number, lon: number, departISO: string): Promise<SkyExtras> {
+  const js = await get(
+    `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}` +
+    `&hourly=cloud_cover,pressure_msl&past_days=1&forecast_days=3&timezone=UTC`, 12000);
+  const h = js?.hourly;
+  if (!h?.time?.length) throw new Error('no sky data');
+  const depart = new Date(departISO).getTime();
+  let i = h.time.findIndex((t: string) => new Date(`${t}Z`).getTime() + 3600_000 > depart);
+  if (i < 0) i = h.time.length - 1;
+  const p = h.pressure_msl?.[i] ?? null;
+  const p6 = h.pressure_msl?.[Math.max(0, i - 6)] ?? null;
+  return {
+    cloud_pct: h.cloud_cover?.[i] ?? null,
+    pressure_mb: p != null ? Math.round(p) : null,
+    pressure_change_mb: p != null && p6 != null ? Math.round((p - p6) * 10) / 10 : null,
   };
 }

@@ -22,15 +22,32 @@ export interface Water {
   /** rough size, for "is this worth the drive" context */
   acres?: number;
   note?: string;
+  /** Species keys from core/fishing SPECIES, in the order locals name them. */
+  species?: string[];
+  /** Local rules a captain planning a day would want in front of them.
+   *  Verify against the state guide each season — limits change annually. */
+  fishingRules?: string[];
 }
 
 export const KNOWN_WATERS: Water[] = [
-  { key: 'patoka', name: 'Patoka Lake', state: 'IN', lat: 38.424, lon: -86.648, kind: 'lake', region: 'in-patoka', acres: 8800, note: 'Indiana’s second-largest reservoir' },
-  { key: 'monroe', name: 'Monroe Lake', state: 'IN', lat: 39.028, lon: -86.420, kind: 'lake', region: 'in-monroe', acres: 10750, note: 'Indiana’s largest lake' },
-  { key: 'rough-river', name: 'Rough River Lake', state: 'KY', lat: 37.617, lon: -86.462, kind: 'lake', region: 'ky-rough-river', acres: 5100 },
-  { key: 'nolin', name: 'Nolin River Lake', state: 'KY', lat: 37.300, lon: -86.250, kind: 'lake', region: 'ky-nolin', acres: 5795 },
-  { key: 'cumberland', name: 'Lake Cumberland', state: 'KY', lat: 36.930, lon: -85.050, kind: 'lake', region: 'ky-cumberland', acres: 63530, note: 'one of the largest man-made lakes in the US' },
-  { key: 'barkley-kentucky', name: 'Kentucky Lake & Lake Barkley', state: 'KY', lat: 36.800, lon: -88.050, kind: 'lake', region: 'ky-barkley-lakes', acres: 218000 },
+  { key: 'patoka', name: 'Patoka Lake', state: 'IN', lat: 38.424, lon: -86.648, kind: 'lake', region: 'in-patoka', acres: 8800, note: 'Indiana’s second-largest reservoir',
+    species: ['largemouth', 'spotted', 'crappie', 'bluegill', 'hybridstriper', 'channelcat', 'flathead', 'walleye', 'whitebass'],
+    fishingRules: [
+      'Bass here have a 15" minimum — a Patoka exception to Indiana\'s statewide 14". 5/day combined.',
+      'Hybrid striped bass & white bass: 12/day combined, no more than 2 over 17".',
+      'Crappie 25/day, bluegill 25/day, no size limit. Channel cat 10/day; flathead 5/day.',
+      'Walleye 6/day, 14" minimum. Stocked annually along with hybrid stripers.',
+    ] },
+  { key: 'monroe', name: 'Monroe Lake', state: 'IN', lat: 39.028, lon: -86.420, kind: 'lake', region: 'in-monroe', acres: 10750, note: 'Indiana’s largest lake',
+    species: ['largemouth', 'spotted', 'crappie', 'bluegill', 'channelcat', 'flathead', 'whitebass', 'muskie'] },
+  { key: 'rough-river', name: 'Rough River Lake', state: 'KY', lat: 37.617, lon: -86.462, kind: 'lake', region: 'ky-rough-river', acres: 5100,
+    species: ['largemouth', 'crappie', 'bluegill', 'channelcat', 'flathead', 'whitebass'] },
+  { key: 'nolin', name: 'Nolin River Lake', state: 'KY', lat: 37.300, lon: -86.250, kind: 'lake', region: 'ky-nolin', acres: 5795,
+    species: ['largemouth', 'spotted', 'crappie', 'bluegill', 'channelcat', 'whitebass'] },
+  { key: 'cumberland', name: 'Lake Cumberland', state: 'KY', lat: 36.930, lon: -85.050, kind: 'lake', region: 'ky-cumberland', acres: 63530, note: 'one of the largest man-made lakes in the US',
+    species: ['largemouth', 'spotted', 'crappie', 'bluegill', 'hybridstriper', 'whitebass', 'channelcat', 'walleye'] },
+  { key: 'barkley-kentucky', name: 'Kentucky Lake & Lake Barkley', state: 'KY', lat: 36.800, lon: -88.050, kind: 'lake', region: 'ky-barkley-lakes', acres: 218000,
+    species: ['largemouth', 'crappie', 'bluegill', 'channelcat', 'whitebass', 'hybridstriper'] },
   { key: 'key-west', name: 'Key West & the lower Keys', state: 'FL', lat: 24.560, lon: -81.780, kind: 'coastal', region: 'fl-key-west' },
   { key: 'keys-biscayne', name: 'Upper Keys / Biscayne Bay', state: 'FL', lat: 25.300, lon: -80.250, kind: 'coastal', region: 'fl-keys-bimini' },
   { key: 'manasquan', name: 'Manasquan / Barnegat', state: 'NJ', lat: 40.100, lon: -74.030, kind: 'coastal', region: 'nj-manasquan' },

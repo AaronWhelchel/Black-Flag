@@ -208,6 +208,23 @@
   .act-pill.marginal { background: rgba(184,134,11,.14); color: var(--warn); }
   .act-pill.poor { background: rgba(224,123,57,.14); color: #c25e20; }
   .act-pill.unsafe { background: rgba(217,72,79,.12); color: var(--bad); }
+  .verdict-card.fish-prime { border-left-color: var(--good); } .verdict-card.fish-prime .verdict-head { color: var(--good); }
+  .verdict-card.fish-good { border-left-color: var(--good); } .verdict-card.fish-good .verdict-head { color: var(--good); }
+  .verdict-card.fish-fair { border-left-color: var(--warn); } .verdict-card.fish-fair .verdict-head { color: var(--warn); }
+  .verdict-card.fish-slow { border-left-color: var(--ink-3); } .verdict-card.fish-slow .verdict-head { color: var(--ink-2); }
+  .fish-factors { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .ff { border-left: 3px solid var(--line); padding: 2px 0 2px 10px; }
+  .ff.good { border-left-color: var(--good); }
+  .ff.poor { border-left-color: #e07b39; }
+  .ff-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .ff-l { font-weight: 700; font-size: 14px; }
+  .ff-b { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; font-weight: 700; padding: 1px 7px; border-radius: 9px; }
+  .ff-b.biology { background: rgba(30,142,78,.12); color: var(--good); }
+  .ff-b.mechanism { background: rgba(11,107,203,.10); color: var(--accent); }
+  .ff-b.tradition { background: rgba(139,149,161,.16); color: var(--ink-2); }
+  .watertemp { margin-top: 12px; padding: 10px; background: var(--card-2); border-radius: 10px; }
+  .watertemp label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .9px; color: var(--ink-3); font-weight: 700; display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .watertemp input { width: 90px; font-size: 14px; }
   .cond-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px 14px; margin: 8px 0; }
   .cond-grid .k { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--ink-3); font-weight: 700; }
   .cond-grid .v { font-size: 17px; font-weight: 700; }
@@ -394,6 +411,7 @@
           </div>
           <div id="dp-verdict"></div>
           <div id="dp-conditions"></div>
+          <div id="dp-fishing"></div>
           <div id="dp-alts"></div>
           <div id="dp-checklist"></div>
 

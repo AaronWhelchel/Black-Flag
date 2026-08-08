@@ -25,6 +25,7 @@ import { fetchPlaceForecast, PlaceForecast } from './forecast.js';
 import {
   assessDay, buildChecklist, ALL_ACTIVITIES, activityLabel,
 } from '../packages/core/src/dayplan.js';
+import { assessFishing, sunTimes, moonPhase, estimateWaterTempF } from '../packages/core/src/fishing.js';
 import type { Activity, DayConditions, DayVessel, DayAssessment, ChecklistItem } from '../packages/core/src/dayplan.js';
 import { describeRow, draftBasis, tripFieldsOf, round1, KN_PER_MPH } from '../packages/core/src/vessel.js';
 import type { VesselSpec } from '../packages/core/src/vessel.js';
@@ -1545,6 +1546,7 @@ function renderDayPlan() {
           ${list.map(it => `<label class="ck${dpChecked.has(it.id) ? ' done' : ''}"><input type="checkbox" data-ck="${esc(it.id)}"${dpChecked.has(it.id) ? ' checked' : ''}><span>${esc(it.text)}</span></label>`).join('')}
         </div>`).join('')}
     </div>`;
+  renderFishing();
   document.querySelectorAll('#dp-checklist input[data-ck]').forEach(el => el.addEventListener('change', () => {
     const id = (el as HTMLElement).dataset.ck!;
     (el as HTMLInputElement).checked ? dpChecked.add(id) : dpChecked.delete(id);
@@ -1554,7 +1556,97 @@ function renderDayPlan() {
   }));
 }
 
-/** When the day is not good where you wanted to go, go and look elsewhere. */
+// ---- fishing report -------------------------------------------------------
+// Only when the captain says they're fishing. Every factor carries what stands
+// behind it, because a rating nobody can interrogate is astrology with a logo.
+
+const BASIS_LABEL: Record<string, string> = {
+  biology: 'established',
+  mechanism: 'observed mechanism',
+  tradition: 'angler tradition · evidence thin',
+};
+
+const waterTempKey = (w: Water) => `watertemp:${w.key}`;
+
+function renderFishing() {
+  if (!dpWater || !dpLastForecast || !dpActs.includes('fishing')) { $('dp-fishing').innerHTML = ''; return; }
+  const w = dpWater, f = dpLastForecast;
+  const when = new Date(dpDepartISO());
+  const { sunrise, sunset } = sunTimes(when, w.lat, w.lon);
+
+  const saved = engine.list('plan').find(p => p.id === waterTempKey(w))?.data as any;
+  const measured = typeof saved?.f === 'number' ? saved.f : null;
+  const estimated = estimateWaterTempF(when, w.lat, f.window.air_temp_f ?? null);
+
+  const report = assessFishing({
+    species: w.species ?? [],
+    water_temp_f: measured ?? estimated,
+    water_temp_estimated: measured == null,
+    when, sunrise, sunset,
+    wind_kn: f.window.wind_kn,
+    chop_ft: f.window.chop_ft ?? null,
+    cloud_pct: f.sky?.cloud_pct ?? null,
+    pressure_mb: f.sky?.pressure_mb ?? null,
+    pressure_change_mb: f.sky?.pressure_change_mb ?? null,
+    precip_pct: f.window.precip_pct ?? null,
+    thunder: f.window.thunder,
+    moon_phase: moonPhase(when),
+  });
+
+  const hhmm = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const prime = report.active.filter(a => a.verdict === 'prime');
+  const active = report.active.filter(a => a.verdict === 'active');
+
+  $('dp-fishing').innerHTML = `
+    <div class="card verdict-card fish-${report.rating}">
+      <h3>Fishing · ${esc(w.name)}</h3>
+      <div class="verdict-head" style="font-size:23px">${esc(report.rating.toUpperCase())}</div>
+      <div style="font-size:14.5px;font-weight:600;margin-top:2px">${esc(report.headline)}</div>
+
+      <div class="fish-factors">
+        ${report.factors.map(x => `
+          <div class="ff ${x.effect}">
+            <div class="ff-h"><span class="ff-l">${esc(x.label)}</span><span class="ff-b ${x.basis}">${esc(BASIS_LABEL[x.basis])}</span></div>
+            <div class="sub">${esc(x.detail)}</div>
+          </div>`).join('')}
+      </div>
+
+      ${w.species?.length ? `
+      <div class="k-lab" style="margin-top:12px">What the water temperature suits</div>
+      <div class="act-grid">
+        ${prime.map(a => `<span class="act-pill good" title="${esc(a.species.note ?? '')}">${esc(a.species.name)} · prime</span>`).join('')}
+        ${active.map(a => `<span class="act-pill marginal" title="${esc(a.species.note ?? '')}">${esc(a.species.name)}</span>`).join('')}
+        ${!prime.length && !active.length ? '<span class="sub">Nothing is in its band at this temperature.</span>' : ''}
+      </div>
+      ${prime[0]?.species.note ? `<div class="sub" style="margin-top:6px"><b>${esc(prime[0].species.name)}:</b> ${esc(prime[0].species.note)}</div>` : ''}` : ''}
+
+      <div class="k-lab" style="margin-top:12px">Best windows today</div>
+      <div class="sub">${report.bestWindows.map(b => `<b>${esc(b.label)}</b> ${esc(hhmm(b.from))}–${esc(hhmm(b.to))}`).join(' · ')} <span style="color:var(--ink-3)">(sunrise ${esc(hhmm(sunrise))}, sunset ${esc(hhmm(sunset))})</span></div>
+
+      <div class="watertemp">
+        <label>Water temp °F
+          <input type="number" id="dp-wt" min="32" max="95" step="1" value="${measured ?? ''}" placeholder="${estimated}">
+        </label>
+        <div class="sub">${esc(report.waterTempNote)}</div>
+      </div>
+
+      ${w.fishingRules?.length ? `
+      <div class="k-lab" style="margin-top:12px">Local rules</div>
+      <ul style="margin:0 0 0 18px;padding:0">${w.fishingRules.map(r => `<li class="sub" style="margin:2px 0">${esc(r)}</li>`).join('')}</ul>
+      <div class="sub" style="margin-top:4px;font-size:12px">Check the current state guide before you keep anything — limits change every year.</div>` : ''}
+
+      <div class="prov">${esc(report.honesty)}</div>
+    </div>`;
+
+  $('dp-wt').addEventListener('change', () => {
+    const v = +($('dp-wt') as HTMLInputElement).value;
+    if (v >= 32 && v <= 95) engine.write('plan', waterTempKey(w), 'update', { f: v });
+    else engine.write('plan', waterTempKey(w), 'update', { f: null });
+    persistSoon();
+    renderFishing();
+  });
+}
+
 async function renderAlternatives(primary: DayAssessment, seq: number) {
   if (!dpWater || seq !== dpSeq) return;
   if (primary.verdict === 'good') { $('dp-alts').innerHTML = ''; return; }
