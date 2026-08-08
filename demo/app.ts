@@ -20,6 +20,12 @@ import { makeStore, DeviceStore, savePackFiles, loadPackFiles } from './store.js
 import { unzipSync } from 'fflate';
 import { regionForRoute, downloadPack, newerPackAvailable } from './packfetch.js';
 import { VesselCatalog } from './vessels.js';
+import { KNOWN_WATERS, Water, waterByKey, searchWaters, nearby } from './waters.js';
+import { fetchPlaceForecast, PlaceForecast } from './forecast.js';
+import {
+  assessDay, buildChecklist, ALL_ACTIVITIES, activityLabel,
+} from '../packages/core/src/dayplan.js';
+import type { Activity, DayConditions, DayVessel, DayAssessment, ChecklistItem } from '../packages/core/src/dayplan.js';
 import { describeRow, draftBasis, tripFieldsOf, round1, KN_PER_MPH } from '../packages/core/src/vessel.js';
 import type { VesselSpec } from '../packages/core/src/vessel.js';
 import { EncPack, buildDepthGate, DepthGate } from './enc.js';
@@ -283,6 +289,7 @@ $('v-save').addEventListener('click', () => {
   show('v-editor', false);
   renderVesselList();
   refreshVesselSelect();
+  refreshDpBoats();
   ($('free-vessel') as HTMLSelectElement).value = id;
   applyVesselChoice();
   engine.write('plan', 'free-plan', 'update', { vessel: id });
@@ -296,6 +303,7 @@ $('v-delete').addEventListener('click', () => {
   show('v-editor', false);
   renderVesselList();
   refreshVesselSelect();
+  refreshDpBoats();
   applyVesselChoice();
 });
 
@@ -1206,6 +1214,9 @@ type Tab = 'explore' | 'plan' | 'vessel';
 let tab: Tab = 'explore';
 function setTab(t: Tab) {
   tab = t;
+  document.querySelector('.layout')?.classList.toggle('solo', t === 'plan');
+  show('map-card', t !== 'plan');
+  show('vintage', t !== 'plan');
   for (const id of ['explore', 'plan', 'vessel']) {
     $(`tab-${id}`).classList.toggle('on', id === t);
     show(`view-${id}`, id === t);
@@ -1219,7 +1230,10 @@ function setTab(t: Tab) {
     restoring = true; onRouteChange(); restoring = false;
     chart.render();
   } else if (t === 'plan') {
+    // The day plan IS the page — a chart of somewhere else, and the coastal
+    // demo's graphs, are noise while deciding whether to hitch the trailer.
     show('trip-wx-card', false);
+    show('conditions-card', false);
     applyPlanScenario();
   } else {
     show('trip-wx-card', false);
@@ -1350,6 +1364,7 @@ function adoptVessel(v: VesselSpec) {
   persistSoon();
   renderVesselList();
   refreshVesselSelect();
+  refreshDpBoats();
   ($('free-vessel') as HTMLSelectElement).value = id;
   applyVesselChoice();
   engine.write('plan', 'free-plan', 'update', { vessel: id });
@@ -1405,13 +1420,256 @@ $('vcat-q').addEventListener('focus', async () => {
   }
 });
 
+
+// ================= Day plan =================
+// The question a captain actually asks before hitching the trailer: is today
+// worth the drive? Everything the app knows, on one page, in plain language —
+// and the decision stays theirs.
+
+const dpChecked = new Set<string>();
+let dpActs: Activity[] = ['cruising'];
+let dpWater: Water | null = null;
+let dpLastForecast: PlaceForecast | null = null;
+/** Bumped on every check. Nearby waters are fetched one at a time, so a
+ *  second check started mid-flight would otherwise write its predecessor's
+ *  answers into a panel that no longer exists. */
+let dpSeq = 0;
+
+/** Rough open-water fetch for a lake — how far wind blows before it reaches
+ *  you. Bigger water, bigger chop for the same wind. */
+function fetchNmFor(w: Water): number {
+  if (w.kind === 'coastal') return 10;
+  const acres = w.acres ?? 3000;
+  return Math.max(0.8, Math.min(9, Math.sqrt(acres / 640) * 0.9));   // ~0.9 × side of a square mile-ish
+}
+
+function dpVesselChoice(): { v: TripVessel; cruise: number } {
+  return vesselById(($('dp-boat') as HTMLSelectElement).value);
+}
+
+function refreshDpBoats() {
+  const sel = $('dp-boat') as HTMLSelectElement;
+  const cur = sel.value;
+  const opts = [
+    ...customVessels().map(c => ({ id: c.id, label: `${c.v.name} (${c.v.loa_ft} ft)` })),
+    { id: 'builtin-restless', label: 'Restless-31 (31 ft cruiser) — sample' },
+    { id: 'builtin-t16', label: 'Tahoe T16 (16 ft) — sample' },
+  ];
+  sel.innerHTML = opts.map(o => `<option value="${o.id}">${esc(o.label)}</option>`).join('');
+  sel.value = opts.some(o => o.id === cur) ? cur : opts[0].id;
+}
+
+function renderActivityChips() {
+  $('dp-acts').innerHTML = ALL_ACTIVITIES.map(a =>
+    `<button type="button" class="chip-btn${dpActs.includes(a) ? ' on' : ''}" data-act="${a}">${esc(activityLabel(a))}</button>`).join('');
+  document.querySelectorAll('#dp-acts .chip-btn').forEach(b => b.addEventListener('click', () => {
+    const a = (b as HTMLElement).dataset.act as Activity;
+    dpActs = dpActs.includes(a) ? dpActs.filter(x => x !== a) : [...dpActs, a];
+    renderActivityChips();
+    if (dpLastForecast) renderDayPlan();     // re-judge instantly, no refetch
+  }));
+}
+
+const dpDepartISO = () => {
+  const d = ($('dp-date') as HTMLInputElement).value || new Date().toISOString().slice(0, 10);
+  const t = ($('dp-time') as HTMLInputElement).value || '09:00';
+  return new Date(`${d}T${t}`).toISOString();
+};
+
+const VERDICT_WORD: Record<string, string> = { good: 'GOOD DAY', marginal: 'MARGINAL', poor: 'ROUGH', unsafe: 'DO NOT GO' };
+
+const condGrid = (c: DayConditions) => `
+  <div class="cond-grid">
+    <div><div class="k">Wind</div><div class="v">${Math.round(c.wind_kn)} kn${c.gust_kn ? ` <span class="sub">g${Math.round(c.gust_kn)}</span>` : ''}</div></div>
+    ${c.chop_ft != null ? `<div><div class="k">Chop (est)</div><div class="v">${(Math.round(c.chop_ft * 10) / 10).toFixed(1)} ft</div></div>` : ''}
+    ${c.air_temp_f != null ? `<div><div class="k">Air</div><div class="v">${Math.round(c.air_temp_f)}°F</div></div>` : ''}
+    ${c.precip_pct != null ? `<div><div class="k">Rain</div><div class="v">${Math.round(c.precip_pct)}%</div></div>` : ''}
+    ${c.summary ? `<div style="grid-column:1/-1"><div class="k">Sky</div><div class="sub">${esc(c.summary)}</div></div>` : ''}
+  </div>`;
+
+function renderDayPlan() {
+  if (!dpWater || !dpLastForecast) return;
+  const f = dpLastForecast;
+  const { v } = dpVesselChoice();
+  const vessel: DayVessel = { name: v.name, loa_ft: v.loa_ft, max_seas_ft: v.max_recommended_seas_ft, category: v.type };
+  const a = assessDay(f.window, vessel, dpActs);
+
+  const when = new Date(dpDepartISO());
+  const whenTxt = when.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) +
+    ', leaving about ' + when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  $('dp-verdict').innerHTML = `
+    <div class="card verdict-card ${a.verdict}">
+      <div class="verdict-head">${esc(VERDICT_WORD[a.verdict])}</div>
+      <div style="font-size:15px;font-weight:600;margin-top:2px">${esc(a.headline)}</div>
+      <div class="sub" style="margin-top:2px">${esc(dpWater.name)} · ${esc(whenTxt)}</div>
+      <ul style="margin:10px 0 0 18px;padding:0">
+        ${a.reasons.map(r => `<li class="sub" style="margin:3px 0">${esc(r)}</li>`).join('')}
+      </ul>
+      <div class="act-grid">
+        ${a.perActivity.map(p => `<span class="act-pill ${p.verdict}" title="${esc(p.reasons.join(' '))}">${esc(p.label)} · ${esc(p.verdict)}</span>`).join('')}
+      </div>
+      <div class="sub" style="margin-top:10px">This is your call, not the app's — the numbers above are everything Black Flag knows.</div>
+    </div>`;
+
+  const nowBlock = f.now ? `<div class="k-lab" style="margin-top:12px">Right now</div>${condGrid(f.now)}` : '';
+  const strip = f.hours.slice(0, 12).map(h => {
+    const chop = h.wind_kn;
+    const cls = h.thunder ? 'bad' : chop >= 15 ? 'rough' : '';
+    return `<div class="hourcell ${cls}"><div class="hr">${new Date(h.time).toLocaleTimeString([], { hour: 'numeric' })}</div><div class="wd">${Math.round(h.wind_kn)}</div><div class="hr">${h.temp_f != null ? Math.round(h.temp_f) + '°' : ''}</div></div>`;
+  }).join('');
+  $('dp-conditions').innerHTML = `
+    <div class="card">
+      <h3>Conditions at ${esc(dpWater.name)}</h3>
+      <div class="k-lab">Worst of your window (departure → +8 h)</div>
+      ${condGrid(f.window)}
+      <div class="k-lab" style="margin-top:12px">At departure</div>
+      ${condGrid(f.at)}
+      ${nowBlock}
+      <div class="k-lab" style="margin-top:12px">Wind by the hour (kn)</div>
+      <div class="hourstrip">${strip}</div>
+      <div class="prov">${esc(f.provenance)} · fetched ${f.fetched_at.slice(11, 16)}Z</div>
+    </div>`;
+
+  // ---- checklist
+  const items = buildChecklist(dpActs, f.window);
+  const groups = new Map<string, ChecklistItem[]>();
+  for (const it of items) (groups.get(it.group) ?? groups.set(it.group, []).get(it.group)!).push(it);
+  const done = items.filter(i => dpChecked.has(i.id)).length;
+  $('dp-checklist').innerHTML = `
+    <div class="card">
+      <h3>Before you go · ${done}/${items.length}</h3>
+      <div class="sub">Built from what you're doing today. Tick as you load — it stays ticked on this device.</div>
+      ${[...groups].map(([g, list]) => `
+        <div class="ck-group"><h4>${esc(g)}</h4>
+          ${list.map(it => `<label class="ck${dpChecked.has(it.id) ? ' done' : ''}"><input type="checkbox" data-ck="${esc(it.id)}"${dpChecked.has(it.id) ? ' checked' : ''}><span>${esc(it.text)}</span></label>`).join('')}
+        </div>`).join('')}
+    </div>`;
+  document.querySelectorAll('#dp-checklist input[data-ck]').forEach(el => el.addEventListener('change', () => {
+    const id = (el as HTMLElement).dataset.ck!;
+    (el as HTMLInputElement).checked ? dpChecked.add(id) : dpChecked.delete(id);
+    engine.write('plan', 'day-checklist', 'update', { checked: [...dpChecked] });
+    persistSoon();
+    renderDayPlan();
+  }));
+}
+
+/** When the day is not good where you wanted to go, go and look elsewhere. */
+async function renderAlternatives(primary: DayAssessment, seq: number) {
+  if (!dpWater || seq !== dpSeq) return;
+  if (primary.verdict === 'good') { $('dp-alts').innerHTML = ''; return; }
+  const cands = nearby(dpWater, 130, 4);
+  if (!cands.length) {
+    $('dp-alts').innerHTML = `<div class="card"><h3>Somewhere else?</h3><div class="sub">Black Flag doesn't cover another water within about 130 miles of here yet, so it can't tell you whether anywhere nearby is better. Tell me which lakes you'd want on this list and they go in.</div></div>`;
+    return;
+  }
+  $('dp-alts').innerHTML = `<div class="card"><h3>Somewhere else today?</h3><div class="sub" id="dp-alt-status">Checking ${cands.length} nearby waters…</div><div id="dp-alt-rows"></div></div>`;
+  const { v } = dpVesselChoice();
+  const vessel: DayVessel = { name: v.name, loa_ft: v.loa_ft, max_seas_ft: v.max_recommended_seas_ft, category: v.type };
+  const rows: { w: Water; miles: number; bearing: string; a: DayAssessment; c: DayConditions }[] = [];
+  for (const cd of cands) {
+    try {
+      const f = await fetchPlaceForecast(cd.water.lat, cd.water.lon, dpDepartISO(), fetchNmFor(cd.water));
+      if (seq !== dpSeq) return;                 // a newer check superseded this one
+      rows.push({ w: cd.water, miles: cd.miles, bearing: cd.bearing, a: assessDay(f.window, vessel, dpActs), c: f.window });
+    } catch { /* one water unreachable — the others still answer */ }
+  }
+  rows.sort((x, y) => y.a.score - x.a.score);
+  const better = rows.filter(r => r.a.score > primary.score + 200);
+  const statusEl = document.getElementById('dp-alt-status');
+  const rowsEl = document.getElementById('dp-alt-rows');
+  if (seq !== dpSeq || !statusEl || !rowsEl) return;
+  if (!rows.length) { statusEl.textContent = 'Couldn’t reach the forecast for any nearby water just now — try again in a minute.'; return; }
+  statusEl.innerHTML = better.length
+    ? `<b>${esc(better[0].w.name)}</b> looks like the better drive today.`
+    : `Nowhere nearby is meaningfully better today — it's a weather day, not a location problem. Staying home is a legitimate answer.`;
+  rowsEl.innerHTML = rows.map(r => `
+    <div class="alt-row">
+      <div><div class="nm">${esc(r.w.name)} <span class="act-pill ${r.a.verdict}">${esc(r.a.verdict)}</span></div>
+        <div class="meta">${Math.round(r.miles)} mi ${esc(r.bearing)} · wind ${Math.round(r.c.wind_kn)} kn${r.c.chop_ft != null ? ` · ${(Math.round(r.c.chop_ft * 10) / 10).toFixed(1)} ft chop` : ''}${r.c.thunder ? ' · storms' : ''}</div></div>
+      <button class="btn" data-alt="${esc(r.w.key)}">Plan here</button>
+    </div>`).join('');
+  document.querySelectorAll('#dp-alt-rows [data-alt]').forEach(b => b.addEventListener('click', () => {
+    const w = waterByKey((b as HTMLElement).dataset.alt!);
+    if (!w) return;
+    dpWater = w;
+    ($('dp-where') as HTMLInputElement).value = w.name;
+    void runDayPlan();
+  }));
+}
+
+async function runDayPlan() {
+  const seq = ++dpSeq;
+  if (!dpWater) {
+    const found = searchWaters(($('dp-where') as HTMLInputElement).value);
+    if (!found.length) { $('dp-status').textContent = 'Pick a water first.'; return; }
+    dpWater = found[0];
+    ($('dp-where') as HTMLInputElement).value = dpWater.name;
+  }
+  $('dp-status').textContent = `Checking ${dpWater.name}…`;
+  $('dp-alts').innerHTML = '';
+  try {
+    const got = await fetchPlaceForecast(dpWater.lat, dpWater.lon, dpDepartISO(), fetchNmFor(dpWater));
+    if (seq !== dpSeq) return;
+    dpLastForecast = got;
+    $('dp-status').textContent = '';
+    renderDayPlan();
+    const { v } = dpVesselChoice();
+    const a = assessDay(dpLastForecast.window, { name: v.name, loa_ft: v.loa_ft, max_seas_ft: v.max_recommended_seas_ft }, dpActs);
+    void renderAlternatives(a, seq);
+    engine.write('plan', 'day-plan', 'update', { water: dpWater.key, activities: dpActs, boat: ($('dp-boat') as HTMLSelectElement).value });
+    persistSoon();
+  } catch (e) {
+    if (seq !== dpSeq) return;
+    $('dp-status').innerHTML = `<span style="color:var(--bad)">Couldn’t reach a forecast for ${esc(dpWater.name)} (${esc(String((e as Error).message).slice(0, 40))}). Without it Black Flag has nothing honest to tell you about today — try again in a minute.</span>`;
+  }
+}
+
+$('dp-where').addEventListener('input', () => {
+  const q = ($('dp-where') as HTMLInputElement).value;
+  const hits = searchWaters(q);
+  dpWater = null;
+  $('dp-where-results').innerHTML = q && hits.length
+    ? hits.map(w => `<div class="wr" data-w="${esc(w.key)}">${esc(w.name)} <span class="sub">${esc(w.state)}${w.region ? '' : ' · no chart pack yet'}</span></div>`).join('')
+    : '';
+  document.querySelectorAll('#dp-where-results .wr').forEach(el => el.addEventListener('mousedown', () => {
+    dpWater = waterByKey((el as HTMLElement).dataset.w!);
+    ($('dp-where') as HTMLInputElement).value = dpWater?.name ?? '';
+    $('dp-where-results').innerHTML = '';
+  }));
+});
+$('dp-where').addEventListener('blur', () => setTimeout(() => { $('dp-where-results').innerHTML = ''; }, 150));
+$('dp-go').addEventListener('click', () => void runDayPlan());
+for (const id of ['dp-date', 'dp-time', 'dp-boat']) {
+  $(id).addEventListener('change', () => { if (dpLastForecast) void runDayPlan(); });
+}
+
+function initDayPlan() {
+  const now = new Date();
+  ($('dp-date') as HTMLInputElement).value = now.toISOString().slice(0, 10);
+  ($('dp-time') as HTMLInputElement).value = now.getHours() < 8 ? '09:00'
+    : `${String(Math.min(20, now.getHours() + 1)).padStart(2, '0')}:00`;
+  refreshDpBoats();
+  renderActivityChips();
+  const saved = engine.list('plan').find(p => p.id === 'day-plan')?.data as any;
+  if (saved?.water) {
+    dpWater = waterByKey(saved.water);
+    if (dpWater) ($('dp-where') as HTMLInputElement).value = dpWater.name;
+    if (Array.isArray(saved.activities) && saved.activities.length) { dpActs = saved.activities; renderActivityChips(); }
+  }
+  const ck = engine.list('plan').find(p => p.id === 'day-checklist')?.data as any;
+  if (Array.isArray(ck?.checked)) for (const id of ck.checked) dpChecked.add(id);
+}
+
 (window as any).__bf = {
   chart: () => chart,
+  dayplan: () => ({ water: dpWater, acts: dpActs, forecast: dpLastForecast }),
   vcat: () => vcat,
   mask: (bb: any, px: number) => chart.buildWaterMask(bb, px, [], []),
   depthGate: (bb: any, neededM: number) => chart.enc ? buildDepthGate(chart.enc, bb, neededM) : null,
 };
 initConditions();
+initDayPlan();
 void restorePack();
 renderPassage(recMin);
 refreshVesselSelect();

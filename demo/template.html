@@ -54,6 +54,8 @@
   main { max-width: 1280px; margin: 14px auto; padding: 0 20px; }
   .layout { display: grid; grid-template-columns: minmax(420px, 1fr) 400px; gap: 16px; align-items: start; }
   @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+  /* Day plan owns the page: no chart of somewhere else beside it. */
+  .layout.solo { grid-template-columns: minmax(0, 780px); justify-content: center; }
 
   #map-card { background: var(--card); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
   #chart { width: 100%; display: block; cursor: grab; touch-action: none; }
@@ -180,6 +182,49 @@
   .vcat-specs .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px; color: var(--ink-3); font-weight: 700; }
   .vcat-specs .val { font-size: 15px; font-weight: 600; }
   .vcat-specs .est { color: var(--warn); font-size: 10.5px; font-weight: 700; }
+  .dayform { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+  .dayform label { display: flex; flex-direction: column; gap: 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .9px; color: var(--ink-3); font-weight: 700; position: relative; }
+  .dayform input, .dayform select { font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--ink); font-weight: 400; }
+  .k-lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: .9px; color: var(--ink-3); font-weight: 700; margin-bottom: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip-btn { border: 1.5px solid var(--line); background: #fff; color: var(--ink-2); border-radius: 16px; padding: 5px 13px; font-size: 13px; cursor: pointer; font-weight: 600; }
+  .chip-btn.on { border-color: var(--accent); background: rgba(11,107,203,.07); color: var(--accent); }
+  #dp-where-results { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); z-index: 20; overflow: hidden; }
+  #dp-where-results .wr { padding: 8px 12px; cursor: pointer; font-size: 13.5px; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink); }
+  #dp-where-results .wr:hover { background: var(--card-2); }
+  .verdict-card { border-left: 6px solid var(--ink-3); }
+  .verdict-card.good { border-left-color: var(--good); }
+  .verdict-card.marginal { border-left-color: var(--warn); }
+  .verdict-card.poor { border-left-color: #e07b39; }
+  .verdict-card.unsafe { border-left-color: var(--bad); }
+  .verdict-head { font-family: Georgia, serif; font-size: 27px; font-weight: 700; line-height: 1.15; }
+  .verdict-card.good .verdict-head { color: var(--good); }
+  .verdict-card.marginal .verdict-head { color: var(--warn); }
+  .verdict-card.poor .verdict-head { color: #c25e20; }
+  .verdict-card.unsafe .verdict-head { color: var(--bad); }
+  .act-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .act-pill { border-radius: 14px; padding: 3px 11px; font-size: 12px; font-weight: 700; }
+  .act-pill.good { background: rgba(30,142,78,.1); color: var(--good); }
+  .act-pill.marginal { background: rgba(184,134,11,.14); color: var(--warn); }
+  .act-pill.poor { background: rgba(224,123,57,.14); color: #c25e20; }
+  .act-pill.unsafe { background: rgba(217,72,79,.12); color: var(--bad); }
+  .cond-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px 14px; margin: 8px 0; }
+  .cond-grid .k { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--ink-3); font-weight: 700; }
+  .cond-grid .v { font-size: 17px; font-weight: 700; }
+  .hourstrip { display: flex; gap: 2px; overflow-x: auto; margin-top: 8px; padding-bottom: 4px; }
+  .hourcell { flex: none; width: 52px; text-align: center; font-size: 11px; color: var(--ink-2); border-radius: 6px; padding: 4px 2px; }
+  .hourcell .hr { color: var(--ink-3); font-size: 10px; }
+  .hourcell .wd { font-weight: 700; color: var(--ink); }
+  .hourcell.rough { background: rgba(224,123,57,.14); }
+  .hourcell.bad { background: rgba(217,72,79,.14); }
+  .alt-row { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); }
+  .alt-row .nm { font-weight: 600; }
+  .alt-row .meta { color: var(--ink-3); font-size: 12px; }
+  .ck-group { margin-top: 10px; }
+  .ck-group h4 { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); margin-bottom: 4px; }
+  .ck { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; font-size: 13.5px; cursor: pointer; }
+  .ck input { margin-top: 3px; accent-color: var(--accent); }
+  .ck.done span { text-decoration: line-through; color: var(--ink-3); }
   .vessel-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); }
   .vessel-item .nm { font-weight: 600; }
   .vessel-item .meta { color: var(--ink-3); font-size: 12px; }
@@ -327,7 +372,34 @@
 
         <!-- PLAN -->
         <div id="view-plan" class="hidden">
-          <div class="card" style="padding:12px 16px">
+          <div class="card">
+            <h3>Your day</h3>
+            <div class="dayform">
+              <label>Where
+                <input type="text" id="dp-where" placeholder="Patoka Lake…" autocomplete="off">
+                <div id="dp-where-results"></div>
+              </label>
+              <label>Boat <select id="dp-boat"></select></label>
+              <label>Date <input type="date" id="dp-date"></label>
+              <label>Leaving about <input type="time" id="dp-time" step="900"></label>
+            </div>
+            <div style="margin-top:10px">
+              <div class="k-lab">What are you doing?</div>
+              <div id="dp-acts" class="chips"></div>
+            </div>
+            <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button class="btn primary" id="dp-go">Check the day</button>
+              <span class="sub" id="dp-status"></span>
+            </div>
+          </div>
+          <div id="dp-verdict"></div>
+          <div id="dp-conditions"></div>
+          <div id="dp-alts"></div>
+          <div id="dp-checklist"></div>
+
+          <details class="card" id="dp-demo">
+            <summary class="sub" style="cursor:pointer">Sample coastal passage (the original demo)</summary>
+            <div style="margin-top:10px">
             <select id="scenario" style="width:100%">
               <option value="manasquan">Manasquan → Block Island · Restless-31 (go/no-go)</option>
               <option value="bimini">Key Largo → Bimini · Tahoe T16 (trip budget + risk)</option>
@@ -358,6 +430,15 @@
               <div class="fuel-foot"><span id="fuel-avail"></span><span id="fuel-margin" class="margin ok"></span></div>
             </div>
           </div>
+    <div class="card hidden" id="conditions-card">
+              <h3>Conditions · <span class="rough-key">shaded = inlet rough (ebb vs swell)</span> · gold line = your departure</h3>
+              <div id="wind-chart"></div>
+              <div class="tl-cap">Wind, kt — NBM issued 05:00Z</div>
+              <div id="seas-chart" style="margin-top:8px"></div>
+              <div class="tl-cap">Significant seas, ft — offshore of the route</div>
+            </div>
+            </div>
+          </details>
         </div>
 
         <!-- VESSEL -->
@@ -411,13 +492,6 @@
       </div>
     </div>
 
-    <div class="card hidden" id="conditions-card">
-      <h3>Conditions · <span class="rough-key">shaded = inlet rough (ebb vs swell)</span> · gold line = your departure</h3>
-      <div id="wind-chart"></div>
-      <div class="tl-cap">Wind, kt — NBM issued 05:00Z</div>
-      <div id="seas-chart" style="margin-top:8px"></div>
-      <div class="tl-cap">Significant seas, ft — offshore of the route</div>
-    </div>
   </main>
 
   <div id="tip"></div>

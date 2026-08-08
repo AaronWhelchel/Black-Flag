@@ -22,3 +22,4 @@ export * from './route.js';
 export * from './waves.js';
 export * from './autoroute.js';
 export * from './vessel.js';
+export * from './dayplan.js';
