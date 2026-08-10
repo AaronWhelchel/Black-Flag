@@ -50,9 +50,17 @@ export interface VesselSpec {
 
   loa_ft?: number;
   beam_ft?: number;
+  /** The figure ROUTING uses. For an outboard boat that is the drive DOWN:
+   *  the shallowest water you meet is at idle coming off a ramp or into a
+   *  cove, which is exactly when the leg is down. */
   draft_ft?: number;
+  draft_up_ft?: number;
+  draft_down_ft?: number;
   air_draft_ft?: number;          // height above waterline — bridges
   displacement_lb?: number;
+  dry_weight_lb?: number;
+  deadrise_deg?: number;
+  max_hp?: number;
   gross_tonnage?: number;
 
   power?: { type?: PowerType; make?: string; model?: string; hp?: number; count?: number };
@@ -60,7 +68,13 @@ export interface VesselSpec {
     cruise_kn?: number; top_kn?: number; top_mph?: number; rpm_at_top?: number;
     fuel_gph_cruise?: number; range_nm?: number;
   };
-  capacity?: { persons?: number; fuel_gal?: number; water_gal?: number; berths?: number; passengers?: number; crew?: number };
+  capacity?: {
+    persons?: number; fuel_gal?: number; water_gal?: number; berths?: number;
+    passengers?: number; crew?: number;
+    /** Overloading is a real way to sink a small boat — if the maker states
+     *  a limit, a captain planning six aboard should be able to see it. */
+    max_persons_lb?: number; max_total_lb?: number;
+  };
 
   uses?: string[];                // 'skiing', 'tubing', 'fishing', 'cruising', …
   notes?: string;
@@ -179,7 +193,9 @@ export function tripFieldsOf(v: VesselSpec): VesselTripFields {
     ?? (v.performance?.top_kn != null ? round1(v.performance.top_kn * 0.7) : undefined)
     ?? (v.performance?.top_mph != null ? round1(v.performance.top_mph * KN_PER_MPH * 0.7) : undefined);
   return {
-    draft_ft: v.draft_ft,
+    // The deeper figure is the one to plan on: an outboard boat meets its
+    // shallowest water at idle, which is exactly when the leg is down.
+    draft_ft: v.draft_down_ft ?? v.draft_ft,
     beam_ft: v.beam_ft,
     air_draft_ft: v.air_draft_ft,
     cruise_kn: cruise,

@@ -7,19 +7,23 @@ export const tahoeT16: TripVessel = {
   // fuel profile
   name: 'Tahoe-T16',
   engine_curve: [
-    { rpm: 1000, kn: 4.5, gph: 1.1 },
-    { rpm: 2500, kn: 8.0, gph: 3.0 },
-    { rpm: 3200, kn: 16.0, gph: 4.6 },   // on plane — the economy sweet spot
-    { rpm: 4000, kn: 22.0, gph: 6.8 },
-    { rpm: 5000, kn: 28.0, gph: 9.6 },
-    { rpm: 5800, kn: 33.0, gph: 12.4 },  // WOT, 115 hp outboard
+    // A 75 hp Mercury FourStroke on a 1500 lb hull — the old curve was a
+    // 115 hp motor's, which flattered both the speed and the economy.
+    { rpm: 1000, kn: 3.5, gph: 0.6 },
+    { rpm: 2500, kn: 6.5, gph: 1.8 },    // plowing, before it climbs on plane
+    { rpm: 3500, kn: 17.0, gph: 3.4 },   // just on plane — the economy sweet spot
+    { rpm: 4500, kn: 23.0, gph: 4.8 },
+    { rpm: 5500, kn: 29.0, gph: 6.4 },
+    { rpm: 6000, kn: 34.0, gph: 7.8 },   // WOT ≈ 39 mph, matching Aaron's ~40
   ],
-  usable_gal: 20,
+  usable_gal: 13,          // published Tahoe capacity — was 20, which was wrong
   reserve_frac: 0.2,
   profile_confirmed_days_ago: 5,
   // risk profile
   type: 'open_bow',
-  loa_ft: 16.1,
+  loa_ft: 16.42,           // 16 ft 5 in
+  draft_ft: 2.21,          // 26.5 in with the leg DOWN — the number that matters at idle
+  air_draft_ft: 4.17,      // 4 ft 2 in bridge clearance
   max_recommended_seas_ft: 2,
 };
 

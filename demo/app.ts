@@ -158,7 +158,9 @@ function persistSoon() {
 
 const BUILTIN_VESSELS: Record<string, { v: TripVessel; cruise: number }> = {
   'builtin-restless': { v: { ...restless31, type: 'cruiser', loa_ft: 31, max_recommended_seas_ft: 5, draft_ft: 3.0 }, cruise: 17 },
-  'builtin-t16': { v: { ...tahoeT16, draft_ft: 1.2 }, cruise: 22 },
+  // draft/air draft now come from the fixture, which carries Tahoe's
+  // published figures — the 1.2 ft here was my estimate and it was wrong
+  'builtin-t16': { v: tahoeT16, cruise: 22 },
 };
 
 function customVessels(): { id: string; v: TripVessel; cruise: number }[] {
@@ -1329,7 +1331,9 @@ function renderVesselDetail(v: VesselSpec) {
       <div class="vcat-specs">
         ${vcatSpec('Length', v.loa_ft != null ? `${round1(v.loa_ft)} ft` : null, est('loa_ft'))}
         ${vcatSpec('Beam', v.beam_ft != null ? `${round1(v.beam_ft)} ft` : null, est('beam_ft'))}
-        ${vcatSpec('Draft', v.draft_ft != null ? `${round1(v.draft_ft)} ft` : null, est('draft_ft'))}
+        ${v.draft_up_ft != null && v.draft_down_ft != null
+          ? vcatSpec('Draft', `${round1(v.draft_down_ft)} ft down · ${round1(v.draft_up_ft)} ft up`, est('draft_ft'))
+          : vcatSpec('Draft', v.draft_ft != null ? `${round1(v.draft_ft)} ft` : null, est('draft_ft'))}
         ${vcatSpec('Air draft', v.air_draft_ft != null ? `${round1(v.air_draft_ft)} ft` : null, est('air_draft_ft'))}
         ${vcatSpec('Power', p?.hp ? `${p.hp} hp${p.count && p.count > 1 ? ` ×${p.count}` : ''}${p.make ? ` ${p.make}` : ''}` : p?.type ? p.type : null, est('hp'))}
         ${vcatSpec('Drive', p?.type && p.hp ? p.type.replace(/-/g, ' ') : null)}
@@ -1338,6 +1342,11 @@ function renderVesselDetail(v: VesselSpec) {
         ${vcatSpec('Berths', cap?.berths != null ? `${cap.berths}` : null)}
         ${vcatSpec('Fuel', cap?.fuel_gal != null ? `${cap.fuel_gal} gal` : null, est('fuel_gal'))}
         ${vcatSpec('Water', cap?.water_gal != null ? `${cap.water_gal} gal` : null)}
+        ${vcatSpec('Max power', v.max_hp != null ? `${v.max_hp} hp` : null)}
+        ${vcatSpec('Hull weight', v.dry_weight_lb != null ? `${v.dry_weight_lb.toLocaleString()} lb` : null)}
+        ${vcatSpec('Deadrise', v.deadrise_deg != null ? `${v.deadrise_deg}°` : null)}
+        ${vcatSpec('Max load', v.capacity?.max_total_lb != null ? `${v.capacity.max_total_lb.toLocaleString()} lb total` : null)}
+        ${vcatSpec('Max people weight', v.capacity?.max_persons_lb != null ? `${v.capacity.max_persons_lb.toLocaleString()} lb` : null)}
         ${vcatSpec('Gross tonnage', v.gross_tonnage != null ? `${Math.round(v.gross_tonnage).toLocaleString()} GT` : null)}
         ${vcatSpec('Passengers', cap?.passengers != null ? cap.passengers.toLocaleString() : null)}
         ${vcatSpec('Crew', cap?.crew != null ? cap.crew.toLocaleString() : null)}
