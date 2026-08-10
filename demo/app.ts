@@ -21,6 +21,7 @@ import { unzipSync } from 'fflate';
 import { regionForRoute, downloadPack, newerPackAvailable } from './packfetch.js';
 import { VesselCatalog } from './vessels.js';
 import { boatSvg, hullStyleFor, defaultAirDraft } from './boatart.js';
+import { artFor } from './vesselart.js';
 import { KNOWN_WATERS, Water, waterByKey, searchWaters, nearby } from './waters.js';
 import { fetchPlaceForecast, PlaceForecast } from './forecast.js';
 import {
@@ -258,7 +259,12 @@ function openEditor(id: string | null) {
 function renderVesselList() {
   const list = customVessels();
   $('vessel-list').innerHTML = list.length
-    ? list.map(c => `<div class="vessel-item"><div class="art">${boatSvg({ style: hullStyleFor(c.v.type, undefined, c.v.loa_ft), loa_ft: c.v.loa_ft, draft_ft: c.v.draft_ft, air_draft_ft: (c.v as any).air_draft_ft, chop_ft: 0.35, annotate: false, height: 64 })}</div><div style="flex:1"><div class="nm">${esc(c.v.name)}</div><div class="meta">${c.v.loa_ft} ft ${esc(c.v.type.replace(/_/g, ' '))}${c.v.draft_ft ? ` · ${c.v.draft_ft} ft draft` : ''} · ${c.v.usable_gal} gal usable · cruise ${c.cruise} kn</div></div><button class="btn" data-edit="${c.id}">Edit</button></div>`).join('')
+    ? list.map(c => {
+      const a = artFor({ id: (c.v as any).catalog_id, name: c.v.name });
+      return `<div class="vessel-item"><div class="art${a?.onDark ? ' dark' : ''}">${a
+        ? `<img src="${a.src}" alt="${esc(c.v.name)}">`
+        : boatSvg({ style: hullStyleFor(c.v.type, undefined, c.v.loa_ft), loa_ft: c.v.loa_ft, draft_ft: c.v.draft_ft, air_draft_ft: (c.v as any).air_draft_ft, chop_ft: 0.35, annotate: false, height: 64 })}</div><div style="flex:1"><div class="nm">${esc(c.v.name)}</div><div class="meta">${c.v.loa_ft} ft ${esc(c.v.type.replace(/_/g, ' '))}${c.v.draft_ft ? ` · ${c.v.draft_ft} ft draft` : ''} · ${c.v.usable_gal} gal usable · cruise ${c.cruise} kn</div></div><button class="btn" data-edit="${c.id}">Edit</button></div>`;
+    }).join('')
     : `<div class="sub">No vessels yet — add yours to get real speeds, fuel, and risk numbers everywhere in the app.</div>`;
   document.querySelectorAll('#vessel-list [data-edit]').forEach(b =>
     b.addEventListener('click', () => openEditor((b as HTMLElement).dataset.edit!)));
@@ -1315,7 +1321,11 @@ function renderVesselDetail(v: VesselSpec) {
     <div class="vcat-card">
       <div style="font-size:17px;font-weight:700">${esc(v.name)}</div>
       <div class="sub">${esc([v.make, v.category.replace(/-/g, ' '), v.year_from ? `${v.year_from}${v.year_to && v.year_to !== v.year_from ? `–${v.year_to}` : ''}` : ''].filter(Boolean).join(' · '))}</div>
-      ${v.loa_ft ? `<div class="vcat-art">${boatSvg({ style: hullStyleFor(undefined, v.category, v.loa_ft), loa_ft: v.loa_ft, draft_ft: v.draft_ft, air_draft_ft: v.air_draft_ft, chop_ft: 0.4, annotate: v.draft_ft != null, height: 150 })}</div>` : ''}
+      ${(() => {
+        const a = artFor({ id: v.id, make: v.make, model: v.model, name: v.name });
+        if (a) return `<div class="art-hero${a.onDark ? ' dark' : ''}"><img src="${a.src}" alt="${esc(v.name)}"></div>`;
+        return v.loa_ft ? `<div class="vcat-art">${boatSvg({ style: hullStyleFor(undefined, v.category, v.loa_ft), loa_ft: v.loa_ft, draft_ft: v.draft_ft, air_draft_ft: v.air_draft_ft, chop_ft: 0.4, annotate: v.draft_ft != null, height: 150 })}</div>` : '';
+      })()}
       <div class="vcat-specs">
         ${vcatSpec('Length', v.loa_ft != null ? `${round1(v.loa_ft)} ft` : null, est('loa_ft'))}
         ${vcatSpec('Beam', v.beam_ft != null ? `${round1(v.beam_ft)} ft` : null, est('beam_ft'))}
@@ -1509,9 +1519,17 @@ function renderBoatArt() {
   const limit = comfortableSeasFt({ loa_ft: v.loa_ft, max_seas_ft: v.max_recommended_seas_ft });
   const verdict = chop > limit ? 'past comfortable' : chop > limit * 0.7 ? 'a lively ride' : 'easy water';
   const color = chop > limit ? 'var(--bad)' : chop > limit * 0.7 ? 'var(--warn)' : 'var(--good)';
+  // A drawing of the actual boat if anyone has made one; the generated
+  // silhouette is still what stands against the chop, because that needs a
+  // side view and a waterline and the artwork is from above.
+  const art = artFor({ id: (v as any).catalog_id, name: v.name });
+  const hero = art
+    ? `<div class="art-hero${art.onDark ? ' dark' : ''}"><img src="${art.src}" alt="${esc(v.name)}"></div>`
+    : '';
   $('dp-boat-art').innerHTML = `
     <div class="card boatcard">
-      <div class="art">${boatSvg({ style, loa_ft: v.loa_ft, draft_ft: draft, air_draft_ft: air, chop_ft: chop, name: v.name, height: 200 })}</div>
+      ${hero}
+      <div class="art">${boatSvg({ style, loa_ft: v.loa_ft, draft_ft: draft, air_draft_ft: air, chop_ft: chop, name: v.name, height: art ? 150 : 200 })}</div>
       <div class="caption">
         <span class="nm">${esc(v.name)}</span>
         <span class="m"><b>${Math.round(v.loa_ft)} ft</b> length</span>
