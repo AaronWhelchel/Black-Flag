@@ -225,6 +225,15 @@
   .watertemp { margin-top: 12px; padding: 10px; background: var(--card-2); border-radius: 10px; }
   .watertemp label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .9px; color: var(--ink-3); font-weight: 700; display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
   .watertemp input { width: 90px; font-size: 14px; }
+  .boatcard { padding: 0; overflow: hidden; }
+  .boatcard .art { display: block; background: #eaf2fb; }
+  .boatcard .caption { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 16px 12px; align-items: baseline; }
+  .boatcard .caption .nm { font-weight: 700; font-size: 15px; }
+  .boatcard .caption .m { color: var(--ink-2); font-size: 12.5px; }
+  .boatcard .caption .m b { color: var(--ink); }
+  .boatcard .caption .chopnote { margin-left: auto; font-size: 12.5px; font-weight: 700; }
+  .vessel-item .art { width: 120px; flex: none; }
+  .vcat-art { margin: 8px 0; border-radius: 10px; overflow: hidden; background: #eaf2fb; }
   .cond-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px 14px; margin: 8px 0; }
   .cond-grid .k { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--ink-3); font-weight: 700; }
   .cond-grid .v { font-size: 17px; font-weight: 700; }
@@ -409,6 +418,7 @@
               <span class="sub" id="dp-status"></span>
             </div>
           </div>
+          <div id="dp-boat-art"></div>
           <div id="dp-verdict"></div>
           <div id="dp-conditions"></div>
           <div id="dp-fishing"></div>
@@ -480,6 +490,10 @@
               <label>Name <input type="text" id="v-name" placeholder="e.g. Reel Time"></label>
               <label>Type <select id="v-type">
                 <option value="open_bow">Open bow / bowrider</option>
+                <option value="pontoon">Pontoon</option>
+                <option value="jon_boat">Jon boat / skiff</option>
+                <option value="kayak">Kayak / canoe</option>
+                <option value="houseboat">Houseboat</option>
                 <option value="center_console">Center console</option>
                 <option value="cruiser">Cruiser</option>
                 <option value="sportfish">Sportfish</option>
@@ -487,6 +501,7 @@
                 <option value="pwc">PWC</option>
               </select></label>
               <label>Length overall (ft) <input type="number" id="v-loa" min="8" max="120" step="0.1"></label>
+              <label>Air draft (ft) <input type="number" id="v-air" min="0" max="200" step="0.1" placeholder="height above water — bridges"></label>
               <label>Draft (ft) <input type="number" id="v-draft" min="0.5" max="20" step="0.1" title="Deepest point of hull/drive below the waterline — used by depth-aware routing"></label>
               <label>Max comfortable seas (ft) <input type="number" id="v-seas" min="1" max="15" step="0.5"></label>
               <label>Usable fuel (gal) <input type="number" id="v-fuel" min="1" step="1"></label>

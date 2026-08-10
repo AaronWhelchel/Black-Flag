@@ -15,6 +15,10 @@ import { RiskVessel, RiskAssessment, assessRisk } from './risk.js';
 export interface TripVessel extends VesselFuelProfile, RiskVessel {
   /** Hull draft, feet — used by depth-aware routing (draft + safety clearance). */
   draft_ft?: number;
+  /** Height above the waterline, feet — the number that decides whether you
+   *  fit under a bridge, and what the boat drawing stands its rig on. */
+  air_draft_ft?: number;
+  beam_ft?: number;
 }
 
 export type SpeedChoice = 'top' | 'cruise' | 'best_economy';

@@ -20,12 +20,14 @@ import { makeStore, DeviceStore, savePackFiles, loadPackFiles } from './store.js
 import { unzipSync } from 'fflate';
 import { regionForRoute, downloadPack, newerPackAvailable } from './packfetch.js';
 import { VesselCatalog } from './vessels.js';
+import { boatSvg, hullStyleFor, defaultAirDraft } from './boatart.js';
 import { KNOWN_WATERS, Water, waterByKey, searchWaters, nearby } from './waters.js';
 import { fetchPlaceForecast, PlaceForecast } from './forecast.js';
 import {
   assessDay, buildChecklist, ALL_ACTIVITIES, activityLabel,
 } from '../packages/core/src/dayplan.js';
 import { assessFishing, sunTimes, moonPhase, estimateWaterTempF } from '../packages/core/src/fishing.js';
+import { comfortableSeasFt } from '../packages/core/src/dayplan.js';
 import type { Activity, DayConditions, DayVessel, DayAssessment, ChecklistItem } from '../packages/core/src/dayplan.js';
 import { describeRow, draftBasis, tripFieldsOf, round1, KN_PER_MPH } from '../packages/core/src/vessel.js';
 import type { VesselSpec } from '../packages/core/src/vessel.js';
@@ -166,7 +168,7 @@ function customVessels(): { id: string; v: TripVessel; cruise: number }[] {
       v: {
         name: d.name, type: d.type, loa_ft: d.loa_ft, max_recommended_seas_ft: d.max_seas_ft,
         engine_curve: d.curve, usable_gal: d.usable_gal, reserve_frac: d.reserve_frac,
-        profile_confirmed_days_ago: 0, draft_ft: d.draft_ft,
+        profile_confirmed_days_ago: 0, draft_ft: d.draft_ft, air_draft_ft: d.air_draft_ft,
       },
       cruise: d.cruise_kn,
     };
@@ -256,7 +258,7 @@ function openEditor(id: string | null) {
 function renderVesselList() {
   const list = customVessels();
   $('vessel-list').innerHTML = list.length
-    ? list.map(c => `<div class="vessel-item"><div><div class="nm">${esc(c.v.name)}</div><div class="meta">${c.v.loa_ft} ft ${esc(c.v.type.replace('_', ' '))} · ${c.v.usable_gal} gal usable · cruise ${c.cruise} kn</div></div><button class="btn" data-edit="${c.id}">Edit</button></div>`).join('')
+    ? list.map(c => `<div class="vessel-item"><div class="art">${boatSvg({ style: hullStyleFor(c.v.type, undefined, c.v.loa_ft), loa_ft: c.v.loa_ft, draft_ft: c.v.draft_ft, air_draft_ft: (c.v as any).air_draft_ft, chop_ft: 0.35, annotate: false, height: 64 })}</div><div style="flex:1"><div class="nm">${esc(c.v.name)}</div><div class="meta">${c.v.loa_ft} ft ${esc(c.v.type.replace(/_/g, ' '))}${c.v.draft_ft ? ` · ${c.v.draft_ft} ft draft` : ''} · ${c.v.usable_gal} gal usable · cruise ${c.cruise} kn</div></div><button class="btn" data-edit="${c.id}">Edit</button></div>`).join('')
     : `<div class="sub">No vessels yet — add yours to get real speeds, fuel, and risk numbers everywhere in the app.</div>`;
   document.querySelectorAll('#vessel-list [data-edit]').forEach(b =>
     b.addEventListener('click', () => openEditor((b as HTMLElement).dataset.edit!)));
@@ -280,6 +282,7 @@ $('v-save').addEventListener('click', () => {
     type: ($('v-type') as HTMLSelectElement).value,
     loa_ft: +($('v-loa') as HTMLInputElement).value || 20,
     draft_ft: +($('v-draft') as HTMLInputElement).value || undefined,
+    air_draft_ft: +($('v-air') as HTMLInputElement).value || undefined,
     max_seas_ft: +($('v-seas') as HTMLInputElement).value || 2,
     usable_gal: +($('v-fuel') as HTMLInputElement).value || 20,
     reserve_frac: (+($('v-reserve') as HTMLInputElement).value || 20) / 100,
@@ -1312,6 +1315,7 @@ function renderVesselDetail(v: VesselSpec) {
     <div class="vcat-card">
       <div style="font-size:17px;font-weight:700">${esc(v.name)}</div>
       <div class="sub">${esc([v.make, v.category.replace(/-/g, ' '), v.year_from ? `${v.year_from}${v.year_to && v.year_to !== v.year_from ? `–${v.year_to}` : ''}` : ''].filter(Boolean).join(' · '))}</div>
+      ${v.loa_ft ? `<div class="vcat-art">${boatSvg({ style: hullStyleFor(undefined, v.category, v.loa_ft), loa_ft: v.loa_ft, draft_ft: v.draft_ft, air_draft_ft: v.air_draft_ft, chop_ft: 0.4, annotate: v.draft_ft != null, height: 150 })}</div>` : ''}
       <div class="vcat-specs">
         ${vcatSpec('Length', v.loa_ft != null ? `${round1(v.loa_ft)} ft` : null, est('loa_ft'))}
         ${vcatSpec('Beam', v.beam_ft != null ? `${round1(v.beam_ft)} ft` : null, est('beam_ft'))}
@@ -1350,11 +1354,14 @@ function adoptVessel(v: VesselSpec) {
   const id = `v-${Date.now().toString(36)}`;
   engine.write('vessel', id, 'create', {
     name: v.name,
-    type: v.category === 'sailboat' || v.category === 'catamaran' ? 'sail'
-      : v.loa_ft != null && v.loa_ft >= 26 ? 'cruiser' : 'bowrider',
+    // must be a real VesselType — the risk model indexes its open-water
+    // limits by it, and an unknown value silently broke that lookup
+    type: hullStyleFor(undefined, v.category, v.loa_ft ?? undefined),
     loa_ft: v.loa_ft ?? 20,
     draft_ft: t.draft_ft,
     max_seas_ft: v.loa_ft != null ? Math.max(1, Math.min(8, round1(v.loa_ft / 6))) : 2,
+    beam_ft: t.beam_ft,
+    air_draft_ft: t.air_draft_ft,
     usable_gal: t.fuel_capacity_gal ?? 20,
     reserve_frac: 0.2,
     cruise_kn: t.cruise_kn ?? 15,
@@ -1488,6 +1495,33 @@ const condGrid = (c: DayConditions) => `
     ${c.summary ? `<div style="grid-column:1/-1"><div class="k">Sky</div><div class="sub">${esc(c.summary)}</div></div>` : ''}
   </div>`;
 
+
+/** Your boat, at its real length, in today's chop. The day plan argues that
+ *  the same water is a different day for a different hull; this is that
+ *  argument as a picture. */
+function renderBoatArt() {
+  if (!dpWater || !dpLastForecast) { $('dp-boat-art').innerHTML = ''; return; }
+  const { v } = dpVesselChoice();
+  const chop = dpLastForecast.window.chop_ft ?? 0;
+  const style = hullStyleFor(v.type, undefined, v.loa_ft);
+  const draft = v.draft_ft ?? null;
+  const air = (v as any).air_draft_ft ?? null;
+  const limit = comfortableSeasFt({ loa_ft: v.loa_ft, max_seas_ft: v.max_recommended_seas_ft });
+  const verdict = chop > limit ? 'past comfortable' : chop > limit * 0.7 ? 'a lively ride' : 'easy water';
+  const color = chop > limit ? 'var(--bad)' : chop > limit * 0.7 ? 'var(--warn)' : 'var(--good)';
+  $('dp-boat-art').innerHTML = `
+    <div class="card boatcard">
+      <div class="art">${boatSvg({ style, loa_ft: v.loa_ft, draft_ft: draft, air_draft_ft: air, chop_ft: chop, name: v.name, height: 200 })}</div>
+      <div class="caption">
+        <span class="nm">${esc(v.name)}</span>
+        <span class="m"><b>${Math.round(v.loa_ft)} ft</b> length</span>
+        ${draft != null ? `<span class="m"><b>${Math.round(draft * 10) / 10} ft</b> draft</span>` : '<span class="m">draft not set</span>'}
+        <span class="m">air draft <b>${Math.round(air ?? defaultAirDraft(style, v.loa_ft, v.loa_ft * 0.13))} ft</b>${air == null ? ' (typical)' : ''}</span>
+        <span class="chopnote" style="color:${color}">${(Math.round(chop * 10) / 10).toFixed(1)} ft chop — ${esc(verdict)}</span>
+      </div>
+    </div>`;
+}
+
 function renderDayPlan() {
   if (!dpWater || !dpLastForecast) return;
   const f = dpLastForecast;
@@ -1546,6 +1580,7 @@ function renderDayPlan() {
           ${list.map(it => `<label class="ck${dpChecked.has(it.id) ? ' done' : ''}"><input type="checkbox" data-ck="${esc(it.id)}"${dpChecked.has(it.id) ? ' checked' : ''}><span>${esc(it.text)}</span></label>`).join('')}
         </div>`).join('')}
     </div>`;
+  renderBoatArt();
   renderFishing();
   document.querySelectorAll('#dp-checklist input[data-ck]').forEach(el => el.addEventListener('change', () => {
     const id = (el as HTMLElement).dataset.ck!;

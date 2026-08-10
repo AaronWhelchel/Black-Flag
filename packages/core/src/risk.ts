@@ -9,7 +9,12 @@ import { LatLon, RouteWaypoint, routeLegs, haversineNm } from './distance.js';
  * logging are not — we do not un-know things (Safety Before Convenience).
  */
 
-export type VesselType = 'open_bow' | 'center_console' | 'cruiser' | 'sportfish' | 'sailboat' | 'pwc';
+export type VesselType =
+  | 'open_bow' | 'center_console' | 'cruiser' | 'sportfish' | 'sailboat' | 'pwc'
+  // Inland hulls. A pontoon is not a small cruiser and a kayak is not a small
+  // pontoon — how far offshore each belongs differs by an order of magnitude,
+  // and these are the boats most people on a lake actually own.
+  | 'pontoon' | 'jon_boat' | 'kayak' | 'houseboat';
 
 export interface RiskVessel {
   name: string;
@@ -91,7 +96,8 @@ export interface RiskAssessment {
 }
 
 const OPEN_WATER_LIMIT_NM: Record<VesselType, number> = {
-  pwc: 3, open_bow: 8, center_console: 30, cruiser: 60, sportfish: 80, sailboat: 100,
+  kayak: 1, pwc: 3, jon_boat: 2, pontoon: 3, houseboat: 5,
+  open_bow: 8, center_console: 30, cruiser: 60, sportfish: 80, sailboat: 100,
 };
 
 export function assessRisk(inputs: RiskInputs): Explanation<RiskAssessment> {
