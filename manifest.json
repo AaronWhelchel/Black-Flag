@@ -1,0 +1,24 @@
+{
+  "pack": "enc",
+  "region": "ky-barkley-lakes",
+  "built_at": "2026-08-31T13:19:47.732Z",
+  "layers": {
+    "depth-areas": "ky-barkley-lakes-depth-areas.pmtiles",
+    "depth-contours": "ky-barkley-lakes-depth-contours.pmtiles",
+    "coastline": "ky-barkley-lakes-coastline.pmtiles",
+    "lights": "ky-barkley-lakes-lights.pmtiles",
+    "obstructions": "ky-barkley-lakes-obstructions.pmtiles",
+    "wrecks": "ky-barkley-lakes-wrecks.pmtiles",
+    "restricted-areas": "ky-barkley-lakes-restricted-areas.pmtiles",
+    "coverage": "ky-barkley-lakes-coverage.pmtiles",
+    "mile-markers": "ky-barkley-lakes-mile-markers.pmtiles",
+    "locks": "ky-barkley-lakes-locks.pmtiles",
+    "dams": "ky-barkley-lakes-dams.pmtiles",
+    "bridges": "ky-barkley-lakes-bridges.pmtiles"
+  },
+  "provenance": {
+    "source": "NOAA ENC (S-57)",
+    "license": "public-domain/noaa",
+    "note": "attribution shown on chart surfaces; not for navigation positioning"
+  }
+}
