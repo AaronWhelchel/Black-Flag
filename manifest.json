@@ -1,0 +1,15 @@
+{
+  "pack": "enc",
+  "region": "ky-rough-river",
+  "built_at": "2026-08-31T13:19:54.437Z",
+  "layers": {
+    "depth-areas": "ky-rough-river-depth-areas.pmtiles",
+    "coverage": "ky-rough-river-coverage.pmtiles",
+    "coastline": "ky-rough-river-coastline.pmtiles"
+  },
+  "provenance": {
+    "source": "OpenStreetMap water polygons (ODbL)",
+    "license": "ODbL",
+    "note": "shoreline shape only — DEPTH IS NOT CHARTED for this water; not for navigation"
+  }
+}
