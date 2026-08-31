@@ -1,0 +1,15 @@
+{
+  "pack": "enc",
+  "region": "in-monroe",
+  "built_at": "2026-08-31T13:19:59.430Z",
+  "layers": {
+    "depth-areas": "in-monroe-depth-areas.pmtiles",
+    "coverage": "in-monroe-coverage.pmtiles",
+    "coastline": "in-monroe-coastline.pmtiles"
+  },
+  "provenance": {
+    "source": "OpenStreetMap water polygons (ODbL)",
+    "license": "ODbL",
+    "note": "shoreline shape only — DEPTH IS NOT CHARTED for this water; not for navigation"
+  }
+}
