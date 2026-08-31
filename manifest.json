@@ -1,0 +1,15 @@
+{
+  "pack": "enc",
+  "region": "ky-nolin",
+  "built_at": "2026-08-31T13:21:17.760Z",
+  "layers": {
+    "depth-areas": "ky-nolin-depth-areas.pmtiles",
+    "coverage": "ky-nolin-coverage.pmtiles",
+    "coastline": "ky-nolin-coastline.pmtiles"
+  },
+  "provenance": {
+    "source": "OpenStreetMap water polygons (ODbL)",
+    "license": "ODbL",
+    "note": "shoreline shape only — DEPTH IS NOT CHARTED for this water; not for navigation"
+  }
+}
