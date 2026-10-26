@@ -1,0 +1,8 @@
+fetching OSM water for in-monroe in 2x1 tiles
+  tile 1,1 overpass-api.de: 502
+  tile 1,1 overpass.kumi.systems: 502
+  tile 1,1: 0 elements (0 unique so far)
+  tile 2,1 overpass-api.de: 502
+  tile 2,1 overpass.kumi.systems: 502
+  tile 2,1: 0 elements (0 unique so far)
+no water polygons assembled — quarantining build (Register R4)
